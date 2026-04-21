@@ -28,4 +28,10 @@ dist-ssr
 src-tauri/resources/ggml-base.en.bin
 src-tauri/target
 src-tauri/gen
+workspace_data/
 *.wav
+*.mp4
+*.duration
+last_prompt.txt
+last_response_raw.json
+tokens.log

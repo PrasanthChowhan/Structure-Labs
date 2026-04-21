@@ -1,9 +1,16 @@
-import { useState } from "react";
-import { Search, Loader2, ArrowLeft, Download, FileText, Sparkles, CheckCircle2 } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
+import { useState, useRef, useEffect } from "react";
+import { Search, Loader2, Sparkles, Settings, User, Info, HelpCircle } from "lucide-react";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 interface VideoSection {
-  timestamp: String;
+  timestamp: string;
+  seconds: number;
   title: string;
   description: string;
 }
@@ -17,31 +24,61 @@ interface AnalysisResult {
   adaptation_brief: string;
 }
 
+interface MediaPaths {
+  video_path: string;
+  audio_path: string;
+  duration: number;
+}
+
+type WorkspaceTab = "timeline" | "analysis" | "brief";
+
 function App() {
   const [url, setUrl] = useState("");
+  const [niche, setNiche] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState("");
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [media, setMedia] = useState<MediaPaths | null>(null);
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("timeline");
+  const [currentTime, setCurrentTime] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [notes, setNotes] = useState("");
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleTimeUpdate = () => {
+      setCurrentTime(video.currentTime);
+    };
+
+    video.addEventListener("timeupdate", handleTimeUpdate);
+    return () => video.removeEventListener("timeupdate", handleTimeUpdate);
+  }, [media]);
 
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url) return;
-    
+
     setIsLoading(true);
     setError(null);
     setResult(null);
+    setMedia(null);
 
     try {
-      setStatus("Downloading audio...");
-      const audioPath = await invoke<string>("download_audio", { url });
-      
-      setStatus("Transcribing (this may take a minute)...");
-      const transcript = await invoke<string>("transcribe_audio", { path: audioPath });
-      
-      setStatus("Analyzing with Gemini...");
-      const analysis = await invoke<AnalysisResult>("analyze_transcript", { transcript });
-      
+      setStatus("Fetching media...");
+      const mediaPaths = await invoke<MediaPaths>("download_media", { url });
+      setMedia(mediaPaths);
+
+      setStatus("Transcribing audio...");
+      const transcript = await invoke<string>("transcribe_audio", { path: mediaPaths.audio_path });
+
+      setStatus("Identifying framework...");
+      const analysis = await invoke<AnalysisResult>("analyze_transcript", { 
+        transcript, 
+        niche: niche || null 
+      });
       setResult(analysis);
     } catch (err) {
       setError(String(err));
@@ -51,166 +88,307 @@ function App() {
     }
   };
 
-  if (result) {
-    return (
-      <div className="min-h-screen bg-parchment py-12 px-6 animate-in fade-in duration-700">
-        <div className="max-w-4xl mx-auto space-y-12">
-          <button 
-            onClick={() => setResult(null)}
-            className="flex items-center gap-2 text-stone-gray hover:text-near-black transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span className="font-sans text-sm font-medium">Back to search</span>
-          </button>
-
-          <header className="space-y-4">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-ivory shadow-ring shadow-border-cream">
-              <Sparkles className="w-3.5 h-3.5 text-terracotta" />
-              <span className="text-xs font-sans font-medium text-olive-gray uppercase tracking-wider">{result.framework_detected}</span>
-            </div>
-            <h1 className="text-5xl text-near-black leading-tight">Video Breakdown</h1>
-          </header>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="md:col-span-2 space-y-12">
-              <section className="space-y-6">
-                <h2 className="text-3xl text-near-black">Structure</h2>
-                <div className="space-y-4">
-                  {result.video_structure.map((section, i) => (
-                    <div key={i} className="bg-ivory border border-border-cream p-6 rounded-generous shadow-whisper relative overflow-hidden group">
-                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-terracotta/20 group-hover:bg-terracotta transition-colors" />
-                      <div className="flex justify-between items-start mb-2">
-                        <span className="text-xs font-mono text-stone-gray">{section.timestamp}</span>
-                        <h4 className="text-lg font-serif text-near-black">{section.title}</h4>
-                      </div>
-                      <p className="text-sm text-olive-gray leading-relaxed">{section.description}</p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <section className="bg-near-black text-ivory p-10 rounded-hero space-y-6">
-                <h2 className="text-3xl text-warm-silver">Why It Works</h2>
-                <p className="text-lg text-warm-silver/90 leading-relaxed font-sans italic">
-                  "{result.why_it_works}"
-                </p>
-              </section>
-            </div>
-
-            <aside className="space-y-8">
-              <div className="bg-white border border-border-cream p-6 rounded-generous shadow-whisper space-y-4">
-                <h3 className="text-xl text-near-black font-serif">Hook Type</h3>
-                <p className="text-sm text-olive-gray">{result.hook_type}</p>
-              </div>
-
-              <div className="bg-warm-sand/30 border border-border-cream p-6 rounded-generous space-y-4">
-                <h3 className="text-xl text-near-black font-serif">Reusable Template</h3>
-                <div className="p-4 bg-white/50 rounded-comfort border border-border-cream/50">
-                  <pre className="text-xs text-olive-gray whitespace-pre-wrap font-sans leading-relaxed">
-                    {result.reusable_template}
-                  </pre>
-                </div>
-              </div>
-
-              <div className="bg-terracotta/5 border border-terracotta/10 p-6 rounded-generous space-y-4">
-                <h3 className="text-xl text-terracotta font-serif">Adaptation Brief</h3>
-                <p className="text-sm text-olive-gray leading-relaxed">
-                  {result.adaptation_brief}
-                </p>
-              </div>
-            </aside>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const seekTo = (seconds: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = seconds;
+      videoRef.current.play();
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-parchment flex flex-col items-center pt-24 px-6 pb-20 overflow-hidden relative">
-      {/* Background decoration */}
-      <div className="absolute top-[-10%] right-[-5%] w-96 h-96 bg-terracotta/5 rounded-full blur-3xl" />
-      <div className="absolute bottom-[-5%] left-[-5%] w-80 h-80 bg-stone-gray/5 rounded-full blur-3xl" />
+    <div className="flex flex-col h-screen bg-parchment text-near-black overflow-hidden font-sans antialiased">
+      {/* Top Header / Navigation */}
+      <header className="h-14 border-b border-border-cream bg-white/50 backdrop-blur-md flex items-center justify-between px-6 z-20 shrink-0">
+        <div className="flex items-center gap-8">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-terracotta rounded-full flex items-center justify-center">
+              <span className="text-[10px] text-ivory font-bold">SL</span>
+            </div>
+            <span className="font-serif font-medium text-lg tracking-tight">Structure Labs</span>
+          </div>
 
-      <header className="max-w-2xl w-full text-center space-y-8 mb-16 relative z-10">
-        <div className="inline-block px-4 py-1.5 rounded-full bg-white shadow-ring shadow-border-cream mb-2 animate-in slide-in-from-bottom duration-1000">
-           <span className="text-xs font-sans font-medium text-terracotta uppercase tracking-[0.2em]">Format Intelligence</span>
+          <form onSubmit={handleAnalyze} className="flex items-center gap-2">
+            <div className="relative w-80 group">
+              <input
+                type="text"
+                placeholder="Analyze new video URL..."
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                className="w-full h-8 bg-warm-sand/30 border border-border-cream rounded-comfort px-9 text-xs focus:outline-none focus:ring-2 focus:ring-terracotta/10 transition-all"
+              />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-gray w-3.5 h-3.5" />
+            </div>
+
+            <div className="relative w-48 group">
+              <input
+                type="text"
+                placeholder="Target niche (optional)"
+                value={niche}
+                onChange={(e) => setNiche(e.target.value)}
+                className="w-full h-8 bg-warm-sand/30 border border-border-cream rounded-comfort px-3 text-xs focus:outline-none focus:ring-2 focus:ring-terracotta/10 transition-all"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading || !url}
+              className="h-8 px-4 bg-terracotta text-ivory rounded-comfort text-xs font-medium hover:bg-terracotta/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-sm"
+            >
+              {isLoading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )}
+              Analyze
+            </button>
+          </form>
         </div>
-        <h1 className="text-7xl text-near-black tracking-tight animate-in fade-in slide-in-from-top-4 duration-1000">
-          Structure Labs
-        </h1>
-        <p className="text-2xl text-olive-gray max-w-lg mx-auto leading-relaxed font-sans font-normal opacity-90">
-          Study winning videos like a strategist. Extract formats that work.
-        </p>
+
+        <nav className="flex items-center gap-6">
+          <button className="text-xs font-medium text-olive-gray hover:text-near-black flex items-center gap-1.5 transition-colors">
+            <Info className="w-3.5 h-3.5" /> About
+          </button>
+          <button className="text-xs font-medium text-olive-gray hover:text-near-black flex items-center gap-1.5 transition-colors">
+            <HelpCircle className="w-3.5 h-3.5" /> Help
+          </button>
+          <div className="h-4 w-px bg-border-cream" />
+          <button className="w-8 h-8 bg-warm-sand/50 rounded-full flex items-center justify-center hover:bg-warm-sand transition-colors">
+            <User className="w-4 h-4 text-olive-gray" />
+          </button>
+        </nav>
       </header>
 
-      <main className="max-w-2xl w-full relative z-10">
-        <form onSubmit={handleAnalyze} className="relative group animate-in zoom-in-95 duration-700 delay-200">
-          <input
-            type="text"
-            placeholder="Paste a YouTube video URL..."
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            className="w-full h-16 bg-white border border-border-cream rounded-generous px-14 text-lg text-near-black focus:outline-none focus:ring-4 focus:ring-terracotta/5 transition-all shadow-whisper placeholder:text-stone-gray/50"
-          />
-          <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-stone-gray w-6 h-6" />
-          <button
-            type="submit"
-            disabled={isLoading || !url}
-            className="absolute right-3 top-1/2 -translate-y-1/2 bg-terracotta text-ivory h-10 px-8 rounded-comfort font-medium hover:bg-terracotta/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-lg shadow-terracotta/20 active:scale-95"
-          >
-            {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              "Analyze"
-            )}
-          </button>
-        </form>
-
+      {/* Main Content Area */}
+      <main className="flex-1 overflow-hidden flex flex-col p-6 gap-6 relative">
+        {/* Loading Overlay */}
         {isLoading && (
-          <div className="mt-8 text-center animate-in fade-in duration-300">
-            <p className="text-sm text-stone-gray font-sans animate-pulse">{status}</p>
+          <div className="absolute inset-0 bg-parchment/60 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center animate-in fade-in duration-300">
+            <div className="bg-white border border-border-cream p-8 rounded-generous shadow-whisper flex flex-col items-center gap-4">
+              <Loader2 className="w-8 h-8 text-terracotta animate-spin" />
+              <p className="text-sm font-medium text-olive-gray">{status}</p>
+            </div>
           </div>
         )}
 
-        {error && (
-          <div className="mt-8 p-4 bg-red-50 border border-red-100 rounded-comfort text-red-600 text-sm font-sans text-center animate-in slide-in-from-top-2">
-            {error}
-          </div>
-        )}
+        {/* Workspace Central View */}
+        <div className="flex-1 flex flex-col min-h-0 gap-6">
+          {activeTab === "timeline" ? (
+            <>
+              {/* Video Player Section */}
+              <div className="flex-1 bg-near-black rounded-hero overflow-hidden shadow-2xl relative group">
+                {media ? (
+                  <video
+                    ref={videoRef}
+                    src={convertFileSrc(media.video_path)}
+                    controls
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-4 text-warm-silver/20">
+                    <div className="w-20 h-20 border-2 border-dashed border-warm-silver/10 rounded-full flex items-center justify-center">
+                       <Search className="w-8 h-8" />
+                    </div>
+                    <p className="font-serif text-xl">Enter a URL to start your analysis</p>
+                  </div>
+                )}
+                
+                {error && (
+                   <div className="absolute top-4 right-4 max-w-sm bg-red-50 border border-red-100 p-4 rounded-comfort text-red-600 text-xs shadow-lg animate-in slide-in-from-right-4">
+                     {error}
+                   </div>
+                )}
+              </div>
 
-        <section className="mt-24 grid grid-cols-1 md:grid-cols-3 gap-8 opacity-80 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-500">
-          <div className="space-y-4">
-            <div className="w-10 h-10 bg-ivory rounded-comfort flex items-center justify-center shadow-ring shadow-border-cream">
-              <Download className="w-5 h-5 text-stone-gray" />
+              {/* Proportional Timeline */}
+              <div className="h-24 bg-white border border-border-cream rounded-generous shadow-whisper p-1 flex flex-col">
+                <div className="flex-1 flex gap-px rounded-[10px] overflow-hidden bg-border-cream/30 relative">
+                   {result && media ? (
+                     result.video_structure.map((section, index) => {
+                        const nextSection = result.video_structure[index + 1];
+                        const endSec = nextSection ? nextSection.seconds : media.duration;
+                        const duration = endSec - section.seconds;
+                        const widthPercent = (duration / media.duration) * 100;
+
+                        return (
+                          <button
+                            key={index}
+                            onClick={() => seekTo(section.seconds)}
+                            className="h-full bg-ivory hover:bg-white border-x border-border-cream/50 transition-all flex flex-col justify-center px-4 overflow-hidden text-left relative group/seg"
+                            style={{ width: `${widthPercent}%` }}
+                          >
+                            <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-terracotta/20 group-hover/seg:bg-terracotta transition-colors" />
+                            <span className="text-[10px] font-mono text-stone-gray block mb-1">{section.timestamp}</span>
+                            <span className="text-[11px] font-serif font-medium text-near-black truncate">{section.title}</span>
+                          </button>
+                        );
+                     })
+                   ) : (
+                     <div className="w-full h-full flex items-center justify-center text-stone-gray/30 text-xs italic tracking-wider">
+                        Timeline will appear after analysis
+                     </div>
+                   )}
+                </div>
+                <div className="h-1.5 w-full bg-border-cream/20 mt-1 rounded-full relative overflow-hidden">
+                   <div 
+                     className="absolute top-0 left-0 bottom-0 bg-terracotta transition-all duration-100 ease-linear" 
+                     style={{ width: `${media ? (currentTime / media.duration) * 100 : 0}%` }}
+                   />
+                </div>
+              </div>
+
+              {/* Segments List */}
+              <div className="flex-1 overflow-y-auto bg-white border border-border-cream rounded-hero shadow-whisper">
+                <div className="p-6 border-b border-border-cream sticky top-0 bg-white/80 backdrop-blur-md z-10 flex items-center justify-between">
+                  <h3 className="text-xl font-serif text-near-black">Video Segments</h3>
+                  <span className="text-[10px] font-bold text-olive-gray uppercase tracking-widest bg-warm-sand/30 px-2 py-1 rounded">
+                    {result?.video_structure.length || 0} SECTIONS
+                  </span>
+                </div>
+                <div className="divide-y divide-border-cream">
+                  {result ? (
+                    result.video_structure.map((section, index) => {
+                      const isActive = currentTime >= section.seconds && 
+                        (index === result.video_structure.length - 1 || currentTime < result.video_structure[index + 1].seconds);
+                      
+                      return (
+                        <button
+                          key={index}
+                          onClick={() => seekTo(section.seconds)}
+                          className={cn(
+                            "w-full text-left p-6 hover:bg-parchment/30 transition-all group relative",
+                            isActive && "bg-terracotta/[0.02]"
+                          )}
+                        >
+                          {isActive && (
+                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-terracotta" />
+                          )}
+                          <div className="flex items-start gap-6">
+                            <span className={cn(
+                              "text-sm font-mono shrink-0 pt-1",
+                              isActive ? "text-terracotta" : "text-stone-gray"
+                            )}>
+                              {section.timestamp}
+                            </span>
+                            <div className="space-y-1">
+                              <h4 className={cn(
+                                "text-lg font-serif transition-colors",
+                                isActive ? "text-near-black" : "text-olive-gray group-hover:text-near-black"
+                              )}>
+                                {section.title}
+                              </h4>
+                              <p className="text-sm text-stone-gray leading-relaxed max-w-2xl">
+                                {section.description}
+                              </p>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="p-12 text-center text-stone-gray italic text-sm">
+                      Analyze a video to see the structural breakdown here.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : activeTab === "analysis" ? (
+            <div className="flex-1 overflow-y-auto space-y-8 pr-2 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="bg-white border border-border-cream p-8 rounded-hero shadow-whisper space-y-4">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-terracotta/5 border border-terracotta/10">
+                    <Sparkles className="w-3.5 h-3.5 text-terracotta" />
+                    <span className="text-[10px] font-bold text-terracotta uppercase tracking-wider">Hook Type</span>
+                  </div>
+                  <h3 className="text-3xl text-near-black">{result?.hook_type || "No hook type detected"}</h3>
+                </div>
+
+                <div className="bg-white border border-border-cream p-8 rounded-hero shadow-whisper space-y-4">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-olive-gray/5 border border-olive-gray/10">
+                    <span className="text-[10px] font-bold text-olive-gray uppercase tracking-wider">Framework</span>
+                  </div>
+                  <h3 className="text-3xl text-near-black">{result?.framework_detected || "No framework identified"}</h3>
+                </div>
+              </div>
+
+              <div className="bg-near-black text-ivory p-12 rounded-hero space-y-6">
+                 <h2 className="text-4xl text-warm-silver">Why It Works</h2>
+                 <p className="text-xl text-warm-silver/80 leading-relaxed italic font-serif max-w-3xl">
+                   "{result?.why_it_works}"
+                 </p>
+              </div>
+
+              {result && (
+                <div className="bg-white border border-border-cream p-12 rounded-hero shadow-whisper space-y-6">
+                  <h2 className="text-3xl text-near-black font-serif">Personal Notes</h2>
+                  <textarea
+                    placeholder="Add your own observations, ideas, or reminders here..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    className="w-full h-48 bg-parchment/30 border border-border-cream rounded-generous p-6 text-base focus:outline-none focus:ring-2 focus:ring-terracotta/10 transition-all resize-none font-sans leading-relaxed"
+                  />
+                </div>
+              )}
             </div>
-            <h3 className="text-xl text-near-black">Local Extraction</h3>
-            <p className="text-sm text-olive-gray leading-relaxed">
-              Downloads and transcribes audio directly on your machine.
-            </p>
-          </div>
-          <div className="space-y-4">
-            <div className="w-10 h-10 bg-ivory rounded-comfort flex items-center justify-center shadow-ring shadow-border-cream">
-              <FileText className="w-5 h-5 text-stone-gray" />
+          ) : (
+            <div className="flex-1 overflow-y-auto space-y-8 pr-2 animate-in fade-in slide-in-from-bottom-4 duration-500">
+               <div className="bg-warm-sand/20 border border-border-cream p-12 rounded-hero space-y-8">
+                  <div className="space-y-4">
+                    <h2 className="text-4xl text-near-black">Reusable Template</h2>
+                    <div className="bg-white p-8 rounded-generous border border-border-cream shadow-sm">
+                       <pre className="text-base text-olive-gray whitespace-pre-wrap font-sans leading-relaxed">
+                          {result?.reusable_template}
+                       </pre>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <h2 className="text-4xl text-near-black">Adaptation Brief</h2>
+                    <div className="p-8 bg-terracotta/5 rounded-generous border border-terracotta/10">
+                       <p className="text-lg text-near-black/80 leading-relaxed font-sans">
+                          {result?.adaptation_brief}
+                       </p>
+                    </div>
+                  </div>
+               </div>
             </div>
-            <h3 className="text-xl text-near-black">Format Analysis</h3>
-            <p className="text-sm text-olive-gray leading-relaxed">
-              Breaks down the hook, structure, and retention logic.
-            </p>
-          </div>
-          <div className="space-y-4">
-            <div className="w-10 h-10 bg-ivory rounded-comfort flex items-center justify-center shadow-ring shadow-border-cream">
-              <CheckCircle2 className="w-5 h-5 text-stone-gray" />
-            </div>
-            <h3 className="text-xl text-near-black">Adaptation Brief</h3>
-            <p className="text-sm text-olive-gray leading-relaxed">
-              Get a generalized template to use for your own niche.
-            </p>
-          </div>
-        </section>
+          )}
+        </div>
       </main>
 
-      <footer className="mt-auto pt-20 text-stone-gray/40 text-xs font-sans uppercase tracking-widest">
-        Structure Labs MVP v1.0
+      {/* Bottom Navigation / Workspaces */}
+      <footer className="h-16 border-t border-border-cream bg-white/50 backdrop-blur-md flex items-center justify-between px-6 shrink-0 z-20">
+        <div className="flex items-center gap-2">
+           <span className="text-[10px] font-sans font-bold text-stone-gray uppercase tracking-widest bg-warm-sand/50 px-2 py-0.5 rounded">v1.0</span>
+        </div>
+
+        <div className="flex items-center gap-1 bg-warm-sand/30 p-1 rounded-generous border border-border-cream">
+           {(["timeline", "analysis", "brief"] as const).map((tab) => (
+             <button
+               key={tab}
+               onClick={() => setActiveTab(tab)}
+               className={cn(
+                 "px-6 py-2 rounded-comfort text-xs font-medium transition-all capitalize",
+                 activeTab === tab 
+                   ? "bg-white text-near-black shadow-sm ring-1 ring-border-cream" 
+                   : "text-olive-gray hover:text-near-black hover:bg-white/50"
+               )}
+             >
+               {tab}
+             </button>
+           ))}
+        </div>
+
+        <div className="flex items-center gap-4">
+           <button className="p-2 text-olive-gray hover:text-near-black transition-colors">
+              <Settings className="w-5 h-5" />
+           </button>
+           <div className="w-8 h-8 rounded-full border border-border-cream overflow-hidden shadow-ring shadow-border-cream">
+              <div className="w-full h-full bg-terracotta/5 flex items-center justify-center">
+                 <Sparkles className="w-4 h-4 text-terracotta" />
+              </div>
+           </div>
+        </div>
       </footer>
     </div>
   );
