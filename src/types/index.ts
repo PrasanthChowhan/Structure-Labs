@@ -23,4 +23,38 @@ export interface MediaPaths {
   duration: number;
 }
 
-export type WorkspaceTab = "timeline" | "analysis" | "brief";
+export type WorkspaceTab = "timeline" | "analysis" | "brief" | "scripting";
+
+export interface BlockVariant {
+  id: string;
+  content: any; // TipTap/ProseMirror JSON
+  label: string;
+  createdAt: number;
+  source: 'ai' | 'user';
+}
+
+export interface ScriptBlock {
+  id: string;
+  type: string;
+  variants: Record<string, BlockVariant>;
+  // Note: activeVariantId is managed at the Version level usually, 
+  // but keeping a default here is helpful.
+  defaultVariantId: string;
+}
+
+export interface ScriptVersion {
+  id: string;
+  name: string;
+  blockOrder: string[]; // List of block IDs
+  activeVariants: Record<string, string>; // blockId -> variantId
+  createdAt: number;
+}
+
+export interface ScriptData {
+  title: string;
+  targetAudience: string;
+  niche: string;
+  versions: Record<string, ScriptVersion>;
+  activeVersionId: string;
+  blocks: Record<string, ScriptBlock>;
+}

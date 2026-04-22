@@ -7,6 +7,7 @@ import { ProportionalTimeline } from "../features/timeline/components/Proportion
 import { BlueprintDraftView } from "../features/timeline/components/BlueprintDraftView";
 import { AnalysisView } from "../features/analysis/views/AnalysisView";
 import { BriefView } from "../features/analysis/views/BriefView";
+import { ScriptingView } from "../features/scripting/views/ScriptingView";
 import { TimelineProvider } from "../features/timeline/context/TimelineContext";
 import { useVideoAnalyzer } from "../features/analysis/hooks/useVideoAnalyzer";
 import { useVideoPlayback } from "../features/timeline/hooks/useVideoPlayback";
@@ -97,8 +98,10 @@ function App() {
             </TimelineProvider>
           ) : activeTab === "analysis" ? (
             <AnalysisView result={result} notes={notes} setNotes={setNotes} />
-          ) : (
+          ) : activeTab === "brief" ? (
             <BriefView result={result} />
+          ) : (
+            <ScriptingView result={result} />
           )}
         </div>
       </main>

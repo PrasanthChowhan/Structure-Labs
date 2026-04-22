@@ -16,11 +16,12 @@ export function Footer({ activeTab, setActiveTab }: FooterProps) {
       </div>
 
       <div className="flex items-center gap-1 bg-warm-sand/30 p-1 rounded-generous border border-border-cream">
-         {(["timeline", "analysis", "brief"] as const).map((tab) => {
+         {(["timeline", "analysis", "brief", "scripting"] as const).map((tab) => {
            const descriptions = {
              timeline: "Video segments & playback",
              analysis: "AI breakdown & personal notes",
-             brief: "Reusable template & adaptation"
+             brief: "Reusable template & adaptation",
+             scripting: "Block-based script editor"
            };
            
            return (
