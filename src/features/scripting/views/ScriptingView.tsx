@@ -3,6 +3,7 @@ import { useScriptStore } from '../store/useScriptStore';
 import { ScriptEditor } from '../components/editor/ScriptEditor';
 import { AnalysisResult } from '../../../types';
 import { SCRIPT_PRESETS } from '../data/presets';
+import { exportScript } from '../utils/export';
 import { 
   Plus, 
   Download, 
@@ -106,7 +107,10 @@ export const ScriptingView = ({ result }: ScriptingViewProps) => {
             Save Version
           </button>
           
-          <button className="flex items-center gap-2 px-4 py-1.5 text-sm font-bold bg-terracotta text-white rounded-generous hover:bg-terracotta-dark shadow-warm transition-all transform hover:-translate-y-0.5">
+          <button 
+            onClick={() => exportScript(useScriptStore.getState())}
+            className="flex items-center gap-2 px-4 py-1.5 text-sm font-bold bg-terracotta text-white rounded-generous hover:bg-terracotta-dark shadow-warm transition-all transform hover:-translate-y-0.5"
+          >
             <Download className="w-4 h-4" />
             Export
           </button>
