@@ -8,8 +8,45 @@ import {
   AnalysisResult 
 } from '../../../types';
 
+// ── Helpers to build valid ProseMirror JSON ──────────────────────────
+function makeTextNode(text: string) {
+  return { type: 'text', text };
+}
+
+function makeHeadingNode(text: string, level: number = 2) {
+  return {
+    type: 'heading',
+    attrs: { level },
+    content: [makeTextNode(text)],
+  };
+}
+
+function makeParagraphNode(text: string) {
+  return {
+    type: 'paragraph',
+    content: text ? [makeTextNode(text)] : [],
+  };
+}
+
+function makeCalloutNode(text: string) {
+  // We'll render callouts as blockquotes with a special class
+  return {
+    type: 'blockquote',
+    content: [makeParagraphNode(text)],
+  };
+}
+
+function makeDocContent(nodes: any[]) {
+  return { type: 'doc', content: nodes };
+}
+
+// ── Store Interface ──────────────────────────────────────────────────
 interface ScriptState extends ScriptData {
-  // Actions
+  // Lifecycle
+  isInitialized: boolean;
+  ensureDefaultVersion: () => void;
+
+  // Metadata
   setMetadata: (metadata: Partial<Pick<ScriptData, 'title' | 'targetAudience' | 'niche'>>) => void;
   
   // Version Actions
@@ -26,12 +63,48 @@ interface ScriptState extends ScriptData {
   addVariant: (blockId: string, content: any, source: 'ai' | 'user', label?: string) => string;
   switchVariant: (blockId: string, variantId: string) => void;
   updateVariantContent: (blockId: string, variantId: string, content: any) => void;
+  deleteVariant: (blockId: string, variantId: string) => void;
+  
+  // Content sync (editor → store)
+  syncEditorContent: (editorJson: any) => void;
   
   // Initialization
   initializeFromAnalysis: (analysis: AnalysisResult) => void;
-  applyPreset: (preset: { structure: { type: string, content: string }[] }) => void;
+  applyPreset: (preset: { name: string; structure: { type: string; content: string }[] }) => void;
+  
+  // Computed
+  getActiveVersion: () => ScriptVersion | undefined;
+  getEditorContent: () => any;
 }
 
+// ── Create a block + variant pair ───────────────────────────────────
+function createBlockWithVariant(
+  type: string,
+  pmContent: any,
+  source: 'ai' | 'user' = 'user'
+): { block: ScriptBlock; variantId: string } {
+  const blockId = uuidv4();
+  const variantId = uuidv4();
+
+  const variant: BlockVariant = {
+    id: variantId,
+    content: pmContent,
+    label: 'V1',
+    createdAt: Date.now(),
+    source,
+  };
+
+  const block: ScriptBlock = {
+    id: blockId,
+    type,
+    variants: { [variantId]: variant },
+    defaultVariantId: variantId,
+  };
+
+  return { block, variantId };
+}
+
+// ── Store Implementation ────────────────────────────────────────────
 export const useScriptStore = create<ScriptState>((set, get) => ({
   title: 'Untitled Script',
   targetAudience: '',
@@ -39,6 +112,48 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
   versions: {},
   activeVersionId: '',
   blocks: {},
+  isInitialized: false,
+
+  // Ensure a default empty version always exists
+  ensureDefaultVersion: () => {
+    const state = get();
+    if (Object.keys(state.versions).length > 0) return;
+
+    const versionId = uuidv4();
+    const blockId = uuidv4();
+    const variantId = uuidv4();
+
+    // Create a single empty paragraph block so editor has something to focus
+    const variant: BlockVariant = {
+      id: variantId,
+      content: makeDocContent([makeParagraphNode('')]),
+      label: 'V1',
+      createdAt: Date.now(),
+      source: 'user',
+    };
+
+    const block: ScriptBlock = {
+      id: blockId,
+      type: 'paragraph',
+      variants: { [variantId]: variant },
+      defaultVariantId: variantId,
+    };
+
+    const version: ScriptVersion = {
+      id: versionId,
+      name: 'V1 – Default',
+      blockOrder: [blockId],
+      activeVariants: { [blockId]: variantId },
+      createdAt: Date.now(),
+    };
+
+    set({
+      blocks: { [blockId]: block },
+      versions: { [versionId]: version },
+      activeVersionId: versionId,
+      isInitialized: true,
+    });
+  },
 
   setMetadata: (metadata) => set((state) => ({ ...state, ...metadata })),
 
@@ -66,6 +181,9 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
   switchVersion: (versionId) => set({ activeVersionId: versionId }),
 
   deleteVersion: (versionId) => set((state) => {
+    const versionKeys = Object.keys(state.versions);
+    if (versionKeys.length <= 1) return state; // Don't delete the last version
+
     const { [versionId]: _, ...remainingVersions } = state.versions;
     let nextActiveId = state.activeVersionId;
     if (nextActiveId === versionId) {
@@ -75,6 +193,9 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
   }),
 
   addBlock: (type, initialContent, index) => {
+    const state = get();
+    state.ensureDefaultVersion();
+    
     const blockId = uuidv4();
     const variantId = uuidv4();
     
@@ -153,10 +274,13 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
 
   addVariant: (blockId, content, source, label) => {
     const variantId = uuidv4();
+    const block = get().blocks[blockId];
+    if (!block) return '';
+
     const variant: BlockVariant = {
       id: variantId,
       content,
-      label: label || `V${Object.keys(get().blocks[blockId].variants).length + 1}`,
+      label: label || `V${Object.keys(block.variants).length + 1}`,
       createdAt: Date.now(),
       source,
     };
@@ -207,51 +331,144 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
     };
   }),
 
+  deleteVariant: (blockId, variantId) => set((state) => {
+    const block = state.blocks[blockId];
+    if (!block) return state;
+    // Don't delete the last variant
+    if (Object.keys(block.variants).length <= 1) return state;
+
+    const { [variantId]: _, ...remaining } = block.variants;
+    const newDefault = Object.keys(remaining)[0];
+
+    // Also update active variant in current version if it was pointing to deleted one
+    const activeVersion = state.versions[state.activeVersionId];
+    const updatedActiveVariants = { ...activeVersion?.activeVariants };
+    if (updatedActiveVariants[blockId] === variantId) {
+      updatedActiveVariants[blockId] = newDefault;
+    }
+
+    return {
+      blocks: {
+        ...state.blocks,
+        [blockId]: {
+          ...block,
+          variants: remaining,
+          defaultVariantId: block.defaultVariantId === variantId ? newDefault : block.defaultVariantId,
+        },
+      },
+      versions: activeVersion ? {
+        ...state.versions,
+        [state.activeVersionId]: {
+          ...activeVersion,
+          activeVariants: updatedActiveVariants,
+        },
+      } : state.versions,
+    };
+  }),
+
+  // Sync full editor JSON back into store as a single mega-block
+  // This is the pragmatic MVP approach: the editor owns the content,
+  // the store snapshots it for versioning/export
+  syncEditorContent: (editorJson) => {
+    const state = get();
+    const activeVersion = state.versions[state.activeVersionId];
+    if (!activeVersion || !activeVersion.blockOrder.length) return;
+
+    // Update the first block's active variant with the full editor content
+    const firstBlockId = activeVersion.blockOrder[0];
+    const block = state.blocks[firstBlockId];
+    if (!block) return;
+
+    const activeVariantId = activeVersion.activeVariants[firstBlockId] || block.defaultVariantId;
+    
+    set((s) => ({
+      blocks: {
+        ...s.blocks,
+        [firstBlockId]: {
+          ...block,
+          variants: {
+            ...block.variants,
+            [activeVariantId]: {
+              ...block.variants[activeVariantId],
+              content: editorJson,
+            },
+          },
+        },
+      },
+    }));
+  },
+
+  getActiveVersion: () => {
+    const state = get();
+    return state.versions[state.activeVersionId];
+  },
+
+  getEditorContent: () => {
+    const state = get();
+    const version = state.versions[state.activeVersionId];
+    if (!version || version.blockOrder.length === 0) {
+      return makeDocContent([makeParagraphNode('')]);
+    }
+
+    // Collect all block contents into a single doc
+    const allNodes: any[] = [];
+    version.blockOrder.forEach(bId => {
+      const block = state.blocks[bId];
+      if (!block) return;
+      const vId = version.activeVariants[bId] || block.defaultVariantId;
+      const variant = block.variants[vId];
+      if (!variant || !variant.content) return;
+
+      // The variant content is a full doc — extract its inner nodes
+      if (variant.content.type === 'doc' && variant.content.content) {
+        allNodes.push(...variant.content.content);
+      }
+    });
+
+    if (allNodes.length === 0) {
+      return makeDocContent([makeParagraphNode('')]);
+    }
+
+    return makeDocContent(allNodes);
+  },
+
   initializeFromAnalysis: (analysis) => {
     const initialVersionId = uuidv4();
     const blocks: Record<string, ScriptBlock> = {};
     const blockOrder: string[] = [];
     const activeVariants: Record<string, string> = {};
 
-    // Helper to add a block during initialization
-    const addInitialBlock = (type: string, content: string) => {
-      const bId = uuidv4();
-      const vId = uuidv4();
-      
-      blocks[bId] = {
-        id: bId,
-        type,
-        variants: {
-          [vId]: {
-            id: vId,
-            content: { type: 'doc', content: [{ type, content: [{ type: 'text', text: content }] }] },
-            label: 'V1',
-            createdAt: Date.now(),
-            source: 'user',
-          }
-        },
-        defaultVariantId: vId,
-      };
-      blockOrder.push(bId);
-      activeVariants[bId] = vId;
+    const addInitBlock = (type: string, pmNode: any, source: 'ai' | 'user' = 'ai') => {
+      const { block, variantId } = createBlockWithVariant(type, makeDocContent([pmNode]), source);
+      blocks[block.id] = block;
+      blockOrder.push(block.id);
+      activeVariants[block.id] = variantId;
     };
 
-    // Auto-populate based on analysis
-    addInitialBlock('heading', analysis.reusable_template || 'Draft Script');
-    
-    // Add sections from framework if possible, otherwise use adaptation brief
+    // Title from template
+    addInitBlock('heading', makeHeadingNode(analysis.reusable_template || 'Draft Script', 1));
+
+    // Add sections from video structure
     if (analysis.video_structure && analysis.video_structure.length > 0) {
       analysis.video_structure.forEach(section => {
-        addInitialBlock('heading', section.title);
-        addInitialBlock('paragraph', section.description);
+        addInitBlock('heading', makeHeadingNode(section.title, 2));
+        addInitBlock('paragraph', makeParagraphNode(section.description));
       });
-    } else {
-      addInitialBlock('paragraph', analysis.adaptation_brief || 'Start writing here...');
+    }
+
+    // Add adaptation brief as a callout
+    if (analysis.adaptation_brief) {
+      addInitBlock('callout', makeCalloutNode(`Adaptation Guide: ${analysis.adaptation_brief}`));
+    }
+
+    // Add why it works as a callout
+    if (analysis.why_it_works) {
+      addInitBlock('callout', makeCalloutNode(`Why it works: ${analysis.why_it_works}`));
     }
 
     const initialVersion: ScriptVersion = {
       id: initialVersionId,
-      name: 'V1 - Default',
+      name: 'V1 – From Analysis',
       blockOrder,
       activeVariants,
       createdAt: Date.now(),
@@ -262,6 +479,7 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
       versions: { [initialVersionId]: initialVersion },
       activeVersionId: initialVersionId,
       title: analysis.reusable_template || 'Untitled Script',
+      isInitialized: true,
     });
   },
 
@@ -271,39 +489,27 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
     const activeVariants: Record<string, string> = {};
 
     preset.structure.forEach((item) => {
-      const bId = uuidv4();
-      const vId = uuidv4();
-      
-      blocks[bId] = {
-        id: bId,
-        type: item.type,
-        variants: {
-          [vId]: {
-            id: vId,
-            content: { 
-              type: 'doc', 
-              content: [{ 
-                type: item.type === 'heading' ? 'heading' : 'paragraph', 
-                attrs: item.type === 'heading' ? { level: 2 } : {},
-                content: [{ type: 'text', text: item.content }] 
-              }] 
-            },
-            label: 'V1',
-            createdAt: Date.now(),
-            source: 'user',
-          }
-        },
-        defaultVariantId: vId,
-      };
-      blockOrder.push(bId);
-      activeVariants[bId] = vId;
+      let pmNode: any;
+      if (item.type === 'heading') {
+        pmNode = makeHeadingNode(item.content, 2);
+      } else if (item.type === 'callout') {
+        pmNode = makeCalloutNode(item.content);
+      } else {
+        pmNode = makeParagraphNode(item.content);
+      }
+
+      const { block, variantId } = createBlockWithVariant(item.type, makeDocContent([pmNode]));
+      blocks[block.id] = block;
+      blockOrder.push(block.id);
+      activeVariants[block.id] = variantId;
     });
 
     set((state) => {
       const newVersionId = uuidv4();
+      const presetName = (preset as any).name || 'Preset';
       const newVersion: ScriptVersion = {
         id: newVersionId,
-        name: `V${Object.keys(state.versions).length + 1} - Preset`,
+        name: `V${Object.keys(state.versions).length + 1} – ${presetName}`,
         blockOrder,
         activeVariants,
         createdAt: Date.now(),
@@ -313,6 +519,7 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
         blocks: { ...state.blocks, ...blocks },
         versions: { ...state.versions, [newVersionId]: newVersion },
         activeVersionId: newVersionId,
+        isInitialized: true,
       };
     });
   },

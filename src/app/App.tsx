@@ -12,6 +12,7 @@ import { TimelineProvider } from "../features/timeline/context/TimelineContext";
 import { useVideoAnalyzer } from "../features/analysis/hooks/useVideoAnalyzer";
 import { useVideoPlayback } from "../features/timeline/hooks/useVideoPlayback";
 import { WorkspaceTab } from "../types";
+import { cn } from "../lib/utils";
 
 function App() {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("timeline");
@@ -65,7 +66,10 @@ function App() {
         setIsFocusMode={setIsFocusMode}
       />
 
-      <main className="flex-1 overflow-hidden flex flex-col p-6 gap-6 relative">
+      <main className={cn(
+        "flex-1 overflow-hidden flex flex-col relative",
+        activeTab === "scripting" ? "p-0 gap-0" : "p-6 gap-6"
+      )}>
         {isLoading && (
           <div className="absolute inset-0 bg-parchment/60 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center animate-in fade-in duration-300">
             <div className="bg-white border border-border-cream p-8 rounded-generous shadow-whisper flex flex-col items-center gap-4">
