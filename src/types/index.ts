@@ -23,7 +23,7 @@ export interface MediaPaths {
   duration: number;
 }
 
-export type WorkspaceTab = "timeline" | "analysis" | "brief" | "scripting";
+export type WorkspaceTab = "timeline" | "analysis" | "brief" | "scripting" | "export";
 
 export interface BlockVariant {
   id: string;
