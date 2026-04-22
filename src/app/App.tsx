@@ -7,6 +7,7 @@ import { ProportionalTimeline } from "../features/timeline/components/Proportion
 import { BlueprintDraftView } from "../features/timeline/components/BlueprintDraftView";
 import { AnalysisView } from "../features/analysis/views/AnalysisView";
 import { BriefView } from "../features/analysis/views/BriefView";
+import { ExportView } from "../features/export/views/ExportView";
 import { TimelineProvider } from "../features/timeline/context/TimelineContext";
 import { useVideoAnalyzer } from "../features/analysis/hooks/useVideoAnalyzer";
 import { useVideoPlayback } from "../features/timeline/hooks/useVideoPlayback";
@@ -75,31 +76,35 @@ function App() {
         )}
 
         <div className="flex-1 flex flex-col min-h-0 gap-6">
-          {activeTab === "timeline" ? (
-            <TimelineProvider result={result} media={media}>
-              <VideoPlayer 
-                media={media} 
-                videoRef={videoRef} 
-                error={error} 
-                isFocusMode={isFocusMode}
-              />
-              <ProportionalTimeline 
-                currentTime={currentTime} 
-                seekTo={seekTo} 
-                isFocusMode={isFocusMode}
-              />
-              <BlueprintDraftView 
-                currentTime={currentTime} 
-                highlightedSegmentId={highlightedSegmentId} 
-                seekTo={seekTo} 
-                isFocusMode={isFocusMode}
-              />
-            </TimelineProvider>
-          ) : activeTab === "analysis" ? (
-            <AnalysisView result={result} notes={notes} setNotes={setNotes} />
-          ) : (
-            <BriefView result={result} />
-          )}
+          <TimelineProvider result={result} media={media}>
+            {activeTab === "timeline" ? (
+              <>
+                <VideoPlayer 
+                  media={media} 
+                  videoRef={videoRef} 
+                  error={error} 
+                  isFocusMode={isFocusMode}
+                />
+                <ProportionalTimeline 
+                  currentTime={currentTime} 
+                  seekTo={seekTo} 
+                  isFocusMode={isFocusMode}
+                />
+                <BlueprintDraftView 
+                  currentTime={currentTime} 
+                  highlightedSegmentId={highlightedSegmentId} 
+                  seekTo={seekTo} 
+                  isFocusMode={isFocusMode}
+                />
+              </>
+            ) : activeTab === "analysis" ? (
+              <AnalysisView result={result} notes={notes} setNotes={setNotes} />
+            ) : activeTab === "brief" ? (
+              <BriefView result={result} />
+            ) : (
+              <ExportView />
+            )}
+          </TimelineProvider>
         </div>
       </main>
 
