@@ -23,4 +23,4 @@ export interface MediaPaths {
   duration: number;
 }
 
-export type WorkspaceTab = "timeline" | "analysis" | "brief";
+export type WorkspaceTab = "timeline" | "analysis" | "brief" | "export";
