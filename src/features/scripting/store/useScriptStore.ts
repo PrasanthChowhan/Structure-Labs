@@ -452,7 +452,7 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
     if (analysis.video_structure && analysis.video_structure.length > 0) {
       analysis.video_structure.forEach(section => {
         addInitBlock('heading', makeHeadingNode(section.title, 2));
-        addInitBlock('paragraph', makeParagraphNode(section.description));
+        addInitBlock('paragraph', makeParagraphNode(section.templatized_version || section.description));
       });
     }
 

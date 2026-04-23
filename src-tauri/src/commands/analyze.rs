@@ -38,7 +38,8 @@ pub async fn analyze_transcript(app: AppHandle, transcript: String, niche: Optio
             * timestamp: e.g. 0:00
             * seconds: the numeric start time in seconds
             * title: a short, descriptive title
-            * description: a 1-2 sentence explanation of the segment
+            * description: For 'Hook' segments, this MUST be the verbatim transcript of exactly what was said. For all other segments, provide a 1-2 sentence explanation of the original content ('What was said').
+            * templatized_version: A 'Mad-Libs' style fill-in-the-blanks version of this segment. Replace specific nouns/facts with brackets like [Your Audience] or [Main Benefit]. Ensure it is actionable and keeps the original's psychological trigger.
             * segment_type: categorize the segment into one of: 'Hook', 'Context', 'Value', 'Proof', 'Story', 'CTA', or 'Other'.
         - framework_detected: Identify the likely framework from this taxonomy:
             * Problem -> Solution -> Proof
@@ -67,9 +68,9 @@ pub async fn analyze_transcript(app: AppHandle, transcript: String, niche: Optio
     let _ = std::fs::write(get_data_dir().join("last_prompt.txt"), &prompt);
     log_to_file(&app, "DEBUG: Prompt saved to workspace_data/last_prompt.txt");
 
-    log_to_file(&app, "SENDING: Request to Gemma 4 31B...");
+    log_to_file(&app, "SENDING: Request to Gemma 4 26B...");
     let response = client
-        .post(format!("https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key={}", api_key))
+        .post(format!("https://generativelanguage.googleapis.com/v1beta/models/gemma-4-26b-a4b-it:generateContent?key={}", api_key))
         .json(&serde_json::json!({
             "contents": [{
                 "parts": [{

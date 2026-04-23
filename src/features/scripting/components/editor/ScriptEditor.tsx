@@ -199,7 +199,7 @@ export const ScriptEditor = () => {
   }
 
   return (
-    <div className="w-full relative px-12">
+    <div className="w-full relative px-6">
       <FormattingBubbleMenu editor={editor} />
       <div className="relative">
         <EditorContent editor={editor} />

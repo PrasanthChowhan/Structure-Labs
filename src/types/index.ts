@@ -3,6 +3,7 @@ export interface VideoSection {
   seconds: number;
   title: string;
   description: string;
+  templatized_version: string;
   segment_type: string;
 }
 

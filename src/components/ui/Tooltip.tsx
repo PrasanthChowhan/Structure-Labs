@@ -5,15 +5,16 @@ interface TooltipProps {
   content: string;
   children: React.ReactNode;
   className?: string;
+  containerClassName?: string;
   style?: React.CSSProperties;
 }
 
-export function Tooltip({ content, children, className, style }: TooltipProps) {
+export function Tooltip({ content, children, className, containerClassName, style }: TooltipProps) {
   const [isVisible, setIsVisible] = useState(false);
 
   return (
     <div 
-      className="relative inline-flex items-center"
+      className={cn("relative flex items-center", containerClassName)}
       onMouseEnter={() => setIsVisible(true)}
       onMouseLeave={() => setIsVisible(false)}
       onFocus={() => setIsVisible(true)}
