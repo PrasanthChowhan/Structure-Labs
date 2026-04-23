@@ -40,6 +40,7 @@ export interface ScriptBlock {
   // Note: activeVariantId is managed at the Version level usually, 
   // but keeping a default here is helpful.
   defaultVariantId: string;
+  isVersioned?: boolean;
 }
 
 export interface ScriptVersion {

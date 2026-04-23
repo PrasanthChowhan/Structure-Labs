@@ -42,6 +42,14 @@ function makeDocContent(nodes: any[]) {
 
 // ── Store Interface ──────────────────────────────────────────────────
 interface ScriptState extends ScriptData {
+  // Selection
+  selectedBlocks: string[];
+  setSelectedBlocks: (blockIds: string[]) => void;
+  selectAllBlocks: () => void;
+  clearSelection: () => void;
+  deleteSelectedBlocks: () => void;
+  copySelectedBlocks: () => void;
+
   // Lifecycle
   isInitialized: boolean;
   ensureDefaultVersion: () => void;
@@ -55,9 +63,11 @@ interface ScriptState extends ScriptData {
   deleteVersion: (versionId: string) => void;
   
   // Block Actions
-  addBlock: (type: string, initialContent: any, index?: number) => string;
+  addBlock: (type: string, initialContent: any, index?: number, isVersioned?: boolean) => string;
   removeBlock: (blockId: string) => void;
   reorderBlocks: (newOrder: string[]) => void;
+  updateBlockType: (blockId: string, type: string) => void;
+  setBlockVersioning: (blockId: string, isVersioned: boolean) => void;
   
   // Variant Actions
   addVariant: (blockId: string, content: any, source: 'ai' | 'user', label?: string) => string;
@@ -66,7 +76,7 @@ interface ScriptState extends ScriptData {
   deleteVariant: (blockId: string, variantId: string) => void;
   
   // Content sync (editor → store)
-  syncEditorContent: (editorJson: any) => void;
+  syncBlockContent: (blockId: string, variantId: string, editorJson: any) => void;
   
   // Initialization
   initializeFromAnalysis: (analysis: AnalysisResult) => void;
@@ -75,6 +85,7 @@ interface ScriptState extends ScriptData {
   // Computed
   getActiveVersion: () => ScriptVersion | undefined;
   getEditorContent: () => any;
+  getBlockContent: (blockId: string) => any;
 }
 
 // ── Create a block + variant pair ───────────────────────────────────
@@ -112,7 +123,79 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
   versions: {},
   activeVersionId: '',
   blocks: {},
+  selectedBlocks: [],
   isInitialized: false,
+
+  setSelectedBlocks: (blockIds) => set({ selectedBlocks: blockIds }),
+
+  selectAllBlocks: () => {
+    const state = get();
+    const version = state.versions[state.activeVersionId];
+    if (version) {
+      set({ selectedBlocks: [...version.blockOrder] });
+    }
+  },
+
+  clearSelection: () => set({ selectedBlocks: [] }),
+
+  deleteSelectedBlocks: () => set((state) => {
+    const { selectedBlocks, blocks, versions, activeVersionId } = state;
+    if (selectedBlocks.length === 0) return state;
+
+    const newBlocks = { ...blocks };
+    selectedBlocks.forEach(id => delete newBlocks[id]);
+
+    const newVersions = { ...versions };
+    Object.keys(newVersions).forEach(vId => {
+      newVersions[vId] = {
+        ...newVersions[vId],
+        blockOrder: newVersions[vId].blockOrder.filter(id => !selectedBlocks.includes(id)),
+      };
+      const newActiveVariants = { ...newVersions[vId].activeVariants };
+      selectedBlocks.forEach(id => delete newActiveVariants[id]);
+      newVersions[vId].activeVariants = newActiveVariants;
+    });
+
+    return { 
+      blocks: newBlocks, 
+      versions: newVersions, 
+      selectedBlocks: [] 
+    };
+  }),
+
+  copySelectedBlocks: () => {
+    const state = get();
+    const { selectedBlocks, blocks, versions, activeVersionId } = state;
+    const version = versions[activeVersionId];
+    if (!version || selectedBlocks.length === 0) return;
+
+    // Preserve order from blockOrder
+    const orderedSelection = version.blockOrder.filter(id => selectedBlocks.includes(id));
+    
+    let fullText = '';
+    orderedSelection.forEach(id => {
+      const block = blocks[id];
+      if (!block) return;
+      const vId = version.activeVariants[id] || block.defaultVariantId;
+      const variant = block.variants[vId];
+      if (!variant || !variant.content) return;
+
+      // Simple text extraction from TipTap JSON
+      const extractText = (node: any): string => {
+        if (node.type === 'text' && node.text) return node.text;
+        if (node.content) {
+          const inner = node.content.map(extractText).join('');
+          if (node.type === 'paragraph' || node.type === 'heading') return inner + '\n';
+          return inner;
+        }
+        return '';
+      };
+
+      fullText += extractText(variant.content) + '\n';
+    });
+
+    navigator.clipboard.writeText(fullText.trim());
+  },
 
   // Ensure a default empty version always exists
   ensureDefaultVersion: () => {
@@ -192,7 +275,7 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
     return { versions: remainingVersions, activeVersionId: nextActiveId };
   }),
 
-  addBlock: (type, initialContent, index) => {
+  addBlock: (type, initialContent, index, isVersioned) => {
     const state = get();
     state.ensureDefaultVersion();
     
@@ -212,6 +295,7 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
       type,
       variants: { [variantId]: variant },
       defaultVariantId: variantId,
+      isVersioned,
     };
 
     set((state) => {
@@ -268,6 +352,28 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
           ...activeVersion,
           blockOrder: newOrder,
         },
+      },
+    };
+  }),
+
+  updateBlockType: (blockId, type) => set((state) => {
+    const block = state.blocks[blockId];
+    if (!block) return state;
+    return {
+      blocks: {
+        ...state.blocks,
+        [blockId]: { ...block, type },
+      },
+    };
+  }),
+
+  setBlockVersioning: (blockId, isVersioned) => set((state) => {
+    const block = state.blocks[blockId];
+    if (!block) return state;
+    return {
+      blocks: {
+        ...state.blocks,
+        [blockId]: { ...block, isVersioned },
       },
     };
   }),
@@ -366,36 +472,33 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
     };
   }),
 
-  // Sync full editor JSON back into store as a single mega-block
-  // This is the pragmatic MVP approach: the editor owns the content,
-  // the store snapshots it for versioning/export
-  syncEditorContent: (editorJson) => {
-    const state = get();
-    const activeVersion = state.versions[state.activeVersionId];
-    if (!activeVersion || !activeVersion.blockOrder.length) return;
+  syncBlockContent: (blockId, variantId, content) => set((state) => {
+    const block = state.blocks[blockId];
+    if (!block || !block.variants[variantId]) return state;
 
-    // Update the first block's active variant with the full editor content
-    const firstBlockId = activeVersion.blockOrder[0];
-    const block = state.blocks[firstBlockId];
-    if (!block) return;
-
-    const activeVariantId = activeVersion.activeVariants[firstBlockId] || block.defaultVariantId;
-    
-    set((s) => ({
+    return {
       blocks: {
-        ...s.blocks,
-        [firstBlockId]: {
+        ...state.blocks,
+        [blockId]: {
           ...block,
           variants: {
             ...block.variants,
-            [activeVariantId]: {
-              ...block.variants[activeVariantId],
-              content: editorJson,
-            },
+            [variantId]: { ...block.variants[variantId], content },
           },
         },
       },
-    }));
+    };
+  }),
+
+  getBlockContent: (blockId) => {
+    const state = get();
+    const version = state.versions[state.activeVersionId];
+    const block = state.blocks[blockId];
+    if (!version || !block) return makeDocContent([makeParagraphNode('')]);
+
+    const vId = version.activeVariants[blockId] || block.defaultVariantId;
+    const variant = block.variants[vId];
+    return variant?.content || makeDocContent([makeParagraphNode('')]);
   },
 
   getActiveVersion: () => {

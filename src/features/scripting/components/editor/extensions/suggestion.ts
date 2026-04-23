@@ -1,17 +1,38 @@
 import { ReactRenderer } from '@tiptap/react';
 import tippy, { Instance as TippyInstance } from 'tippy.js';
 import { CommandList } from './CommandList';
+import { useScriptStore } from '../../../store/useScriptStore';
 
 export interface SlashCommandItem {
   title: string;
   description: string;
   icon: string;
-  command: (args: { editor: any; range: any }) => void;
+  command: (args: { editor: any; range: any; props: any }) => void;
 }
 
 export const suggestion = {
-  items: ({ query }: { query: string }): SlashCommandItem[] => {
-    return [
+  items: ({ query, blockId }: { query: string; blockId?: string }): SlashCommandItem[] => {
+    const items: SlashCommandItem[] = [
+      {
+        title: 'Version',
+        description: 'Add versioning capability to this section',
+        icon: 'V',
+        command: ({ editor, range, props }: any) => {
+          const state = useScriptStore.getState();
+          const bId = props.blockId;
+          
+          editor.chain().focus().deleteRange(range).run();
+          state.setBlockVersioning(bId, true);
+        },
+      },
+      {
+        title: 'Divider',
+        description: 'Horizontal separator line',
+        icon: '—',
+        command: ({ editor, range }: any) => {
+          editor.chain().focus().deleteRange(range).setHorizontalRule().run();
+        },
+      },
       {
         title: 'Heading 1',
         description: 'Main section heading',
@@ -37,14 +58,6 @@ export const suggestion = {
         },
       },
       {
-        title: 'Paragraph',
-        description: 'Plain text block',
-        icon: '¶',
-        command: ({ editor, range }: any) => {
-          editor.chain().focus().deleteRange(range).setNode('paragraph').run();
-        },
-      },
-      {
         title: 'Bullet List',
         description: 'Unordered list of items',
         icon: '•',
@@ -61,27 +74,11 @@ export const suggestion = {
         },
       },
       {
-        title: 'Task List',
-        description: 'Checklist with checkboxes',
-        icon: '☑',
-        command: ({ editor, range }: any) => {
-          editor.chain().focus().deleteRange(range).toggleTaskList().run();
-        },
-      },
-      {
         title: 'Callout',
         description: 'Highlighted note or guidance',
         icon: '💡',
         command: ({ editor, range }: any) => {
           editor.chain().focus().deleteRange(range).toggleBlockquote().run();
-        },
-      },
-      {
-        title: 'Divider',
-        description: 'Horizontal separator line',
-        icon: '—',
-        command: ({ editor, range }: any) => {
-          editor.chain().focus().deleteRange(range).setHorizontalRule().run();
         },
       },
       {
@@ -92,31 +89,27 @@ export const suggestion = {
           editor.chain().focus().deleteRange(range).insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
         },
       },
-      {
-        title: 'Image',
-        description: 'Insert image from URL',
-        icon: '🖼',
-        command: ({ editor, range }: any) => {
-          const url = window.prompt('Image URL:');
-          if (url) {
-            editor.chain().focus().deleteRange(range).setImage({ src: url }).run();
-          }
-        },
-      },
-      {
-        title: 'Code Block',
-        description: 'Preformatted code or notes',
-        icon: '</>',
-        command: ({ editor, range }: any) => {
-          editor.chain().focus().deleteRange(range).toggleCodeBlock().run();
-        },
-      },
-    ].filter(item => item.title.toLowerCase().includes(query.toLowerCase())).slice(0, 12);
+    ];
+
+    return items
+      .filter(item => item.title.toLowerCase().includes(query.toLowerCase()))
+      .map(item => ({ ...item, blockId })) // Ensure blockId is attached to each item so it's available in the command props
+      .slice(0, 12);
   },
 
   render: () => {
     let component: ReactRenderer | null = null;
     let popup: TippyInstance[] | null = null;
+
+    const onMouseDown = (event: MouseEvent) => {
+      if (popup && popup[0]) {
+        const target = event.target as HTMLElement;
+        const tippyRoot = popup[0].popper;
+        if (!tippyRoot.contains(target)) {
+          popup[0].hide();
+        }
+      }
+    };
 
     return {
       onStart: (props: any) => {
@@ -139,6 +132,8 @@ export const suggestion = {
           placement: 'bottom-start',
           maxWidth: 320,
         });
+
+        document.addEventListener('mousedown', onMouseDown);
       },
 
       onUpdate(props: any) {
@@ -162,6 +157,7 @@ export const suggestion = {
       },
 
       onExit() {
+        document.removeEventListener('mousedown', onMouseDown);
         popup?.[0]?.destroy();
         component?.destroy();
       },
