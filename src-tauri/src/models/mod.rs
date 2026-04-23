@@ -16,6 +16,7 @@ pub struct VideoSection {
     pub seconds: f64,      // for proportional calculation
     pub title: String,
     pub description: String,
+    pub templatized_version: String,
     pub segment_type: String, // e.g. "Hook", "Context", "Value", "Proof", "CTA", "Other"
 }
 

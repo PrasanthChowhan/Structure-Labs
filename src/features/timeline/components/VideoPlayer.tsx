@@ -14,7 +14,7 @@ interface VideoPlayerProps {
 export function VideoPlayer({ media, videoRef, error, isFocusMode }: VideoPlayerProps) {
   return (
     <div className={cn(
-      "bg-near-black rounded-hero overflow-hidden shadow-2xl relative group transition-all duration-500",
+      "bg-near-black overflow-hidden relative group transition-all duration-500",
       isFocusMode ? "h-48 shrink-0" : "flex-1 min-h-[300px]"
     )}>
       {media ? (

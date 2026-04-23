@@ -9,6 +9,7 @@ import { AnalysisView } from "../features/analysis/views/AnalysisView";
 import { BriefView } from "../features/analysis/views/BriefView";
 import { ScriptingView } from "../features/scripting/views/ScriptingView";
 import { ExportView } from "../features/export/views/ExportView";
+import { TimelineView } from "../features/timeline/views/TimelineView";
 import { TimelineProvider } from "../features/timeline/context/TimelineContext";
 import { useVideoAnalyzer } from "../features/analysis/hooks/useVideoAnalyzer";
 import { useVideoPlayback } from "../features/timeline/hooks/useVideoPlayback";
@@ -54,6 +55,9 @@ function App() {
     return () => video.removeEventListener("timeupdate", handleTimeUpdate);
   }, [media, activeTab, setCurrentTime, videoRef]);
 
+  // No padding for core workspace views
+  const isWorkspaceView = activeTab === "timeline" || activeTab === "scripting";
+
   return (
     <div className="flex flex-col h-screen bg-parchment text-near-black overflow-hidden font-sans antialiased">
       <Header 
@@ -69,7 +73,7 @@ function App() {
 
       <main className={cn(
         "flex-1 overflow-hidden flex flex-col relative",
-        activeTab === "scripting" ? "p-0 gap-0" : "p-6 gap-6"
+        isWorkspaceView ? "p-0 gap-0" : "p-6 gap-6"
       )}>
         {isLoading && (
           <div className="absolute inset-0 bg-parchment/60 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center animate-in fade-in duration-300">
@@ -80,28 +84,19 @@ function App() {
           </div>
         )}
 
-        <div className="flex-1 flex flex-col min-h-0 gap-6">
+        <div className="flex-1 flex flex-col min-h-0">
           <TimelineProvider result={result} media={media}>
             {activeTab === "timeline" ? (
-              <>
-                <VideoPlayer 
-                  media={media} 
-                  videoRef={videoRef} 
-                  error={error} 
-                  isFocusMode={isFocusMode}
-                />
-                <ProportionalTimeline 
-                  currentTime={currentTime} 
-                  seekTo={seekTo} 
-                  isFocusMode={isFocusMode}
-                />
-                <BlueprintDraftView 
-                  currentTime={currentTime} 
-                  highlightedSegmentId={highlightedSegmentId} 
-                  seekTo={seekTo} 
-                  isFocusMode={isFocusMode}
-                />
-              </>
+              <TimelineView 
+                media={media}
+                videoRef={videoRef}
+                currentTime={currentTime}
+                highlightedSegmentId={highlightedSegmentId}
+                seekTo={seekTo}
+                isFocusMode={isFocusMode}
+                error={error}
+                result={result}
+              />
             ) : activeTab === "analysis" ? (
               <AnalysisView result={result} notes={notes} setNotes={setNotes} />
             ) : activeTab === "brief" ? (
