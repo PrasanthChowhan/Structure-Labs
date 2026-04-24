@@ -1,7 +1,7 @@
 import { VideoPlayer } from "../components/VideoPlayer";
 import { ProportionalTimeline } from "../components/ProportionalTimeline";
 import { BlueprintDraftView } from "../components/BlueprintDraftView";
-import { MediaPaths, AnalysisResult } from "../../../types";
+import { MediaPaths } from "../../../types";
 import { cn } from "../../../lib/utils";
 
 interface TimelineViewProps {
@@ -12,20 +12,17 @@ interface TimelineViewProps {
   seekTo: (seconds: number, index: number) => void;
   isFocusMode: boolean;
   error: string | null;
-  result: AnalysisResult | null;
 }
 
-export function TimelineView({
-  media,
-  videoRef,
-  currentTime,
-  highlightedSegmentId,
+export function TimelineView({ 
+  media, 
+  videoRef, 
+  currentTime, 
+  highlightedSegmentId, 
   seekTo,
   isFocusMode,
   error,
-  result
-}: TimelineViewProps) {
-  return (
+}: TimelineViewProps) {  return (
     <div className="flex flex-col h-full bg-white overflow-hidden">
       <div className="flex-1 flex flex-col min-h-0">
         <div className={cn(

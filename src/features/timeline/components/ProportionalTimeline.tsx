@@ -1,6 +1,6 @@
 import { Tooltip } from "../../../components/ui/Tooltip";
 import { useTimeline } from "../context/TimelineContext";
-import { cn, getSegmentStyle, SEGMENT_COLORS } from "../../../lib/utils";
+import { cn, getSegmentStyle } from "../../../lib/utils";
 
 interface ProportionalTimelineProps {
   currentTime: number;

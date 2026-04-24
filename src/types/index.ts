@@ -26,37 +26,17 @@ export interface MediaPaths {
 
 export type WorkspaceTab = "timeline" | "analysis" | "brief" | "scripting" | "export";
 
-export interface BlockVariant {
-  id: string;
-  content: any; // TipTap/ProseMirror JSON
-  label: string;
-  createdAt: number;
-  source: 'ai' | 'user';
-}
-
-export interface ScriptBlock {
-  id: string;
-  type: string;
-  variants: Record<string, BlockVariant>;
-  // Note: activeVariantId is managed at the Version level usually, 
-  // but keeping a default here is helpful.
-  defaultVariantId: string;
-  isVersioned?: boolean;
-}
-
-export interface ScriptVersion {
+export interface ScriptVersionInfo {
   id: string;
   name: string;
-  blockOrder: string[]; // List of block IDs
-  activeVariants: Record<string, string>; // blockId -> variantId
+  docId: string;
   createdAt: number;
 }
 
-export interface ScriptData {
+export interface ScriptStateData {
   title: string;
   targetAudience: string;
   niche: string;
-  versions: Record<string, ScriptVersion>;
+  versions: Record<string, ScriptVersionInfo>;
   activeVersionId: string;
-  blocks: Record<string, ScriptBlock>;
 }

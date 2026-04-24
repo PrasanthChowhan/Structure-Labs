@@ -1,4 +1,3 @@
-import { Sparkles } from "lucide-react";
 import { useTimeline } from "../context/TimelineContext";
 import { cn, getSegmentStyle } from "../../../lib/utils";
 import { ScriptEditor } from "../../scripting/components/editor/ScriptEditor";

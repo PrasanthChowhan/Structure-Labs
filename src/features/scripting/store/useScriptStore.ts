@@ -1,629 +1,224 @@
 import { create } from 'zustand';
-import { v4 as uuidv4 } from 'uuid';
-import { 
-  ScriptData, 
-  ScriptVersion, 
-  ScriptBlock, 
-  BlockVariant,
-  AnalysisResult 
-} from '../../../types';
+import { DocCollection, Schema, Doc } from '@blocksuite/store';
+import { AffineEditorContainer } from '@blocksuite/presets';
+import { AffineSchemas } from '@blocksuite/blocks';
+import { AnalysisResult } from '../../../types';
 
-// ── Helpers to build valid ProseMirror JSON ──────────────────────────
-function makeTextNode(text: string) {
-  return { type: 'text', text };
+interface ScriptVersionInfo {
+  id: string;
+  name: string;
+  docId: string;
+  createdAt: number;
 }
 
-function makeHeadingNode(text: string, level: number = 2) {
-  return {
-    type: 'heading',
-    attrs: { level },
-    content: [makeTextNode(text)],
-  };
-}
-
-function makeParagraphNode(text: string) {
-  return {
-    type: 'paragraph',
-    content: text ? [makeTextNode(text)] : [],
-  };
-}
-
-function makeCalloutNode(text: string) {
-  // We'll render callouts as blockquotes with a special class
-  return {
-    type: 'blockquote',
-    content: [makeParagraphNode(text)],
-  };
-}
-
-function makeDocContent(nodes: any[]) {
-  return { type: 'doc', content: nodes };
-}
-
-// ── Store Interface ──────────────────────────────────────────────────
-interface ScriptState extends ScriptData {
-  // Selection
-  selectedBlocks: string[];
-  setSelectedBlocks: (blockIds: string[]) => void;
-  selectAllBlocks: () => void;
-  clearSelection: () => void;
-  deleteSelectedBlocks: () => void;
-  copySelectedBlocks: () => void;
-
-  // Lifecycle
+interface ScriptState {
+  title: string;
+  targetAudience: string;
+  niche: string;
+  
+  collection: DocCollection;
+  versions: Record<string, ScriptVersionInfo>;
+  activeVersionId: string;
+  
+  // Singleton editor instance
+  editor: AffineEditorContainer;
+  
   isInitialized: boolean;
-  ensureDefaultVersion: () => void;
 
-  // Metadata
-  setMetadata: (metadata: Partial<Pick<ScriptData, 'title' | 'targetAudience' | 'niche'>>) => void;
+  // Metadata Actions
+  setMetadata: (metadata: Partial<Pick<ScriptState, 'title' | 'targetAudience' | 'niche'>>) => void;
   
   // Version Actions
   createVersion: (name: string) => string;
   switchVersion: (versionId: string) => void;
   deleteVersion: (versionId: string) => void;
   
-  // Block Actions
-  addBlock: (type: string, initialContent: any, index?: number, isVersioned?: boolean) => string;
-  removeBlock: (blockId: string) => void;
-  reorderBlocks: (newOrder: string[]) => void;
-  updateBlockType: (blockId: string, type: string) => void;
-  setBlockVersioning: (blockId: string, isVersioned: boolean) => void;
-  
-  // Variant Actions
-  addVariant: (blockId: string, content: any, source: 'ai' | 'user', label?: string) => string;
-  switchVariant: (blockId: string, variantId: string) => void;
-  updateVariantContent: (blockId: string, variantId: string, content: any) => void;
-  deleteVariant: (blockId: string, variantId: string) => void;
-  
-  // Content sync (editor → store)
-  syncBlockContent: (blockId: string, variantId: string, editorJson: any) => void;
-  
-  // Initialization
+  // Lifecycle
+  ensureDefaultVersion: () => void;
   initializeFromAnalysis: (analysis: AnalysisResult) => void;
   applyPreset: (preset: { name: string; structure: { type: string; content: string }[] }) => void;
-  
+
   // Computed
-  getActiveVersion: () => ScriptVersion | undefined;
-  getEditorContent: () => any;
-  getBlockContent: (blockId: string) => any;
+  getActiveDoc: () => Doc | undefined;
 }
 
-// ── Create a block + variant pair ───────────────────────────────────
-function createBlockWithVariant(
-  type: string,
-  pmContent: any,
-  source: 'ai' | 'user' = 'user'
-): { block: ScriptBlock; variantId: string } {
-  const blockId = uuidv4();
-  const variantId = uuidv4();
+const schema = new Schema().register(AffineSchemas);
+const collection = new DocCollection({ schema });
+collection.meta.initialize();
 
-  const variant: BlockVariant = {
-    id: variantId,
-    content: pmContent,
-    label: 'V1',
-    createdAt: Date.now(),
-    source,
-  };
+// Create the singleton editor instance
+const editor = new AffineEditorContainer();
 
-  const block: ScriptBlock = {
-    id: blockId,
-    type,
-    variants: { [variantId]: variant },
-    defaultVariantId: variantId,
-  };
-
-  return { block, variantId };
-}
-
-// ── Store Implementation ────────────────────────────────────────────
 export const useScriptStore = create<ScriptState>((set, get) => ({
   title: 'Untitled Script',
   targetAudience: '',
   niche: '',
+  collection,
   versions: {},
   activeVersionId: '',
-  blocks: {},
-  selectedBlocks: [],
+  editor,
   isInitialized: false,
 
-  setSelectedBlocks: (blockIds) => set({ selectedBlocks: blockIds }),
+  setMetadata: (metadata) => set((state) => ({ ...state, ...metadata })),
 
-  selectAllBlocks: () => {
-    const state = get();
-    const version = state.versions[state.activeVersionId];
-    if (version) {
-      set({ selectedBlocks: [...version.blockOrder] });
-    }
-  },
-
-  clearSelection: () => set({ selectedBlocks: [] }),
-
-  deleteSelectedBlocks: () => set((state) => {
-    const { selectedBlocks, blocks, versions, activeVersionId } = state;
-    if (selectedBlocks.length === 0) return state;
-
-    const newBlocks = { ...blocks };
-    selectedBlocks.forEach(id => delete newBlocks[id]);
-
-    const newVersions = { ...versions };
-    Object.keys(newVersions).forEach(vId => {
-      newVersions[vId] = {
-        ...newVersions[vId],
-        blockOrder: newVersions[vId].blockOrder.filter(id => !selectedBlocks.includes(id)),
-      };
-      const newActiveVariants = { ...newVersions[vId].activeVariants };
-      selectedBlocks.forEach(id => delete newActiveVariants[id]);
-      newVersions[vId].activeVariants = newActiveVariants;
-    });
-
-    return { 
-      blocks: newBlocks, 
-      versions: newVersions, 
-      selectedBlocks: [] 
-    };
-  }),
-
-  copySelectedBlocks: () => {
-    const state = get();
-    const { selectedBlocks, blocks, versions, activeVersionId } = state;
-    const version = versions[activeVersionId];
-    if (!version || selectedBlocks.length === 0) return;
-
-    // Preserve order from blockOrder
-    const orderedSelection = version.blockOrder.filter(id => selectedBlocks.includes(id));
-    
-    let fullText = '';
-    orderedSelection.forEach(id => {
-      const block = blocks[id];
-      if (!block) return;
-      const vId = version.activeVariants[id] || block.defaultVariantId;
-      const variant = block.variants[vId];
-      if (!variant || !variant.content) return;
-
-      // Simple text extraction from TipTap JSON
-      const extractText = (node: any): string => {
-        if (node.type === 'text' && node.text) return node.text;
-        if (node.content) {
-          const inner = node.content.map(extractText).join('');
-          if (node.type === 'paragraph' || node.type === 'heading') return inner + '\n';
-          return inner;
-        }
-        return '';
-      };
-
-      fullText += extractText(variant.content) + '\n';
-    });
-
-    navigator.clipboard.writeText(fullText.trim());
-  },
-
-  // Ensure a default empty version always exists
   ensureDefaultVersion: () => {
     const state = get();
     if (Object.keys(state.versions).length > 0) return;
 
-    const versionId = uuidv4();
-    const blockId = uuidv4();
-    const variantId = uuidv4();
+    const doc = state.collection.createDoc({ id: 'v1-default' });
+    
+    doc.load(() => {
+        const pageBlockId = doc.addBlock('affine:page', {});
+        doc.addBlock('affine:surface', {}, pageBlockId);
+        const noteId = doc.addBlock('affine:note', {}, pageBlockId);
+        doc.addBlock('affine:paragraph', {}, noteId);
+    });
 
-    // Create a single empty paragraph block so editor has something to focus
-    const variant: BlockVariant = {
-      id: variantId,
-      content: makeDocContent([makeParagraphNode('')]),
-      label: 'V1',
-      createdAt: Date.now(),
-      source: 'user',
-    };
-
-    const block: ScriptBlock = {
-      id: blockId,
-      type: 'paragraph',
-      variants: { [variantId]: variant },
-      defaultVariantId: variantId,
-    };
-
-    const version: ScriptVersion = {
+    const versionId = doc.id;
+    const version: ScriptVersionInfo = {
       id: versionId,
       name: 'V1 – Default',
-      blockOrder: [blockId],
-      activeVariants: { [blockId]: variantId },
+      docId: doc.id,
       createdAt: Date.now(),
     };
 
+    // Bind editor to the first doc
+    state.editor.doc = doc;
+
     set({
-      blocks: { [blockId]: block },
       versions: { [versionId]: version },
       activeVersionId: versionId,
       isInitialized: true,
     });
   },
 
-  setMetadata: (metadata) => set((state) => ({ ...state, ...metadata })),
-
   createVersion: (name) => {
-    const id = uuidv4();
     const state = get();
-    const activeVersion = state.versions[state.activeVersionId];
+    const newDoc = state.collection.createDoc();
     
-    const newVersion: ScriptVersion = {
-      id,
+    newDoc.load(() => {
+        const pageBlockId = newDoc.addBlock('affine:page', {});
+        newDoc.addBlock('affine:surface', {}, pageBlockId);
+        const noteId = newDoc.addBlock('affine:note', {}, pageBlockId);
+        newDoc.addBlock('affine:paragraph', {}, noteId);
+    });
+
+    const versionId = newDoc.id;
+    const version: ScriptVersionInfo = {
+      id: versionId,
       name,
-      blockOrder: activeVersion ? [...activeVersion.blockOrder] : [],
-      activeVariants: activeVersion ? { ...activeVersion.activeVariants } : {},
+      docId: newDoc.id,
       createdAt: Date.now(),
     };
 
+    // Switch editor to new doc
+    state.editor.doc = newDoc;
+
     set((state) => ({
-      versions: { ...state.versions, [id]: newVersion },
-      activeVersionId: id,
+      versions: { ...state.versions, [versionId]: version },
+      activeVersionId: versionId,
     }));
 
-    return id;
+    return versionId;
   },
 
-  switchVersion: (versionId) => set({ activeVersionId: versionId }),
+  switchVersion: (versionId) => {
+    const state = get();
+    const version = state.versions[versionId];
+    if (version) {
+        const doc = state.collection.getDoc(version.docId);
+        if (doc) {
+            state.editor.doc = doc;
+        }
+    }
+    set({ activeVersionId: versionId });
+  },
 
   deleteVersion: (versionId) => set((state) => {
     const versionKeys = Object.keys(state.versions);
-    if (versionKeys.length <= 1) return state; // Don't delete the last version
+    if (versionKeys.length <= 1) return state;
 
-    const { [versionId]: _, ...remainingVersions } = state.versions;
+    const { [versionId]: versionToDelete, ...remainingVersions } = state.versions;
+    
+    state.collection.removeDoc(versionToDelete.docId);
+
     let nextActiveId = state.activeVersionId;
     if (nextActiveId === versionId) {
       nextActiveId = Object.keys(remainingVersions)[0] || '';
+      const nextVersion = remainingVersions[nextActiveId];
+      if (nextVersion) {
+          const doc = state.collection.getDoc(nextVersion.docId);
+          if (doc) state.editor.doc = doc;
+      }
     }
     return { versions: remainingVersions, activeVersionId: nextActiveId };
   }),
 
-  addBlock: (type, initialContent, index, isVersioned) => {
-    const state = get();
-    state.ensureDefaultVersion();
-    
-    const blockId = uuidv4();
-    const variantId = uuidv4();
-    
-    const variant: BlockVariant = {
-      id: variantId,
-      content: initialContent,
-      label: 'V1',
-      createdAt: Date.now(),
-      source: 'user',
-    };
-
-    const block: ScriptBlock = {
-      id: blockId,
-      type,
-      variants: { [variantId]: variant },
-      defaultVariantId: variantId,
-      isVersioned,
-    };
-
-    set((state) => {
-      const activeVersion = state.versions[state.activeVersionId];
-      if (!activeVersion) return state;
-
-      const newBlockOrder = [...activeVersion.blockOrder];
-      if (typeof index === 'number') {
-        newBlockOrder.splice(index, 0, blockId);
-      } else {
-        newBlockOrder.push(blockId);
-      }
-
-      return {
-        blocks: { ...state.blocks, [blockId]: block },
-        versions: {
-          ...state.versions,
-          [state.activeVersionId]: {
-            ...activeVersion,
-            blockOrder: newBlockOrder,
-            activeVariants: { ...activeVersion.activeVariants, [blockId]: variantId },
-          },
-        },
-      };
-    });
-
-    return blockId;
-  },
-
-  removeBlock: (blockId) => set((state) => {
-    const { [blockId]: _, ...remainingBlocks } = state.blocks;
-    const newVersions = { ...state.versions };
-    
-    Object.keys(newVersions).forEach(vId => {
-      newVersions[vId] = {
-        ...newVersions[vId],
-        blockOrder: newVersions[vId].blockOrder.filter(id => id !== blockId),
-      };
-      const { [blockId]: __, ...remainingVariants } = newVersions[vId].activeVariants;
-      newVersions[vId].activeVariants = remainingVariants;
-    });
-
-    return { blocks: remainingBlocks, versions: newVersions };
-  }),
-
-  reorderBlocks: (newOrder) => set((state) => {
-    const activeVersion = state.versions[state.activeVersionId];
-    if (!activeVersion) return state;
-
-    return {
-      versions: {
-        ...state.versions,
-        [state.activeVersionId]: {
-          ...activeVersion,
-          blockOrder: newOrder,
-        },
-      },
-    };
-  }),
-
-  updateBlockType: (blockId, type) => set((state) => {
-    const block = state.blocks[blockId];
-    if (!block) return state;
-    return {
-      blocks: {
-        ...state.blocks,
-        [blockId]: { ...block, type },
-      },
-    };
-  }),
-
-  setBlockVersioning: (blockId, isVersioned) => set((state) => {
-    const block = state.blocks[blockId];
-    if (!block) return state;
-    return {
-      blocks: {
-        ...state.blocks,
-        [blockId]: { ...block, isVersioned },
-      },
-    };
-  }),
-
-  addVariant: (blockId, content, source, label) => {
-    const variantId = uuidv4();
-    const block = get().blocks[blockId];
-    if (!block) return '';
-
-    const variant: BlockVariant = {
-      id: variantId,
-      content,
-      label: label || `V${Object.keys(block.variants).length + 1}`,
-      createdAt: Date.now(),
-      source,
-    };
-
-    set((state) => ({
-      blocks: {
-        ...state.blocks,
-        [blockId]: {
-          ...state.blocks[blockId],
-          variants: { ...state.blocks[blockId].variants, [variantId]: variant },
-        },
-      },
-    }));
-
-    return variantId;
-  },
-
-  switchVariant: (blockId, variantId) => set((state) => {
-    const activeVersion = state.versions[state.activeVersionId];
-    if (!activeVersion) return state;
-
-    return {
-      versions: {
-        ...state.versions,
-        [state.activeVersionId]: {
-          ...activeVersion,
-          activeVariants: { ...activeVersion.activeVariants, [blockId]: variantId },
-        },
-      },
-    };
-  }),
-
-  updateVariantContent: (blockId, variantId, content) => set((state) => {
-    const block = state.blocks[blockId];
-    if (!block || !block.variants[variantId]) return state;
-
-    return {
-      blocks: {
-        ...state.blocks,
-        [blockId]: {
-          ...block,
-          variants: {
-            ...block.variants,
-            [variantId]: { ...block.variants[variantId], content },
-          },
-        },
-      },
-    };
-  }),
-
-  deleteVariant: (blockId, variantId) => set((state) => {
-    const block = state.blocks[blockId];
-    if (!block) return state;
-    // Don't delete the last variant
-    if (Object.keys(block.variants).length <= 1) return state;
-
-    const { [variantId]: _, ...remaining } = block.variants;
-    const newDefault = Object.keys(remaining)[0];
-
-    // Also update active variant in current version if it was pointing to deleted one
-    const activeVersion = state.versions[state.activeVersionId];
-    const updatedActiveVariants = { ...activeVersion?.activeVariants };
-    if (updatedActiveVariants[blockId] === variantId) {
-      updatedActiveVariants[blockId] = newDefault;
-    }
-
-    return {
-      blocks: {
-        ...state.blocks,
-        [blockId]: {
-          ...block,
-          variants: remaining,
-          defaultVariantId: block.defaultVariantId === variantId ? newDefault : block.defaultVariantId,
-        },
-      },
-      versions: activeVersion ? {
-        ...state.versions,
-        [state.activeVersionId]: {
-          ...activeVersion,
-          activeVariants: updatedActiveVariants,
-        },
-      } : state.versions,
-    };
-  }),
-
-  syncBlockContent: (blockId, variantId, content) => set((state) => {
-    const block = state.blocks[blockId];
-    if (!block || !block.variants[variantId]) return state;
-
-    return {
-      blocks: {
-        ...state.blocks,
-        [blockId]: {
-          ...block,
-          variants: {
-            ...block.variants,
-            [variantId]: { ...block.variants[variantId], content },
-          },
-        },
-      },
-    };
-  }),
-
-  getBlockContent: (blockId) => {
+  getActiveDoc: () => {
     const state = get();
     const version = state.versions[state.activeVersionId];
-    const block = state.blocks[blockId];
-    if (!version || !block) return makeDocContent([makeParagraphNode('')]);
-
-    const vId = version.activeVariants[blockId] || block.defaultVariantId;
-    const variant = block.variants[vId];
-    return variant?.content || makeDocContent([makeParagraphNode('')]);
-  },
-
-  getActiveVersion: () => {
-    const state = get();
-    return state.versions[state.activeVersionId];
-  },
-
-  getEditorContent: () => {
-    const state = get();
-    const version = state.versions[state.activeVersionId];
-    if (!version || version.blockOrder.length === 0) {
-      return makeDocContent([makeParagraphNode('')]);
-    }
-
-    // Collect all block contents into a single doc
-    const allNodes: any[] = [];
-    version.blockOrder.forEach(bId => {
-      const block = state.blocks[bId];
-      if (!block) return;
-      const vId = version.activeVariants[bId] || block.defaultVariantId;
-      const variant = block.variants[vId];
-      if (!variant || !variant.content) return;
-
-      // The variant content is a full doc — extract its inner nodes
-      if (variant.content.type === 'doc' && variant.content.content) {
-        allNodes.push(...variant.content.content);
-      }
-    });
-
-    if (allNodes.length === 0) {
-      return makeDocContent([makeParagraphNode('')]);
-    }
-
-    return makeDocContent(allNodes);
+    if (!version) return undefined;
+    return state.collection.getDoc(version.docId) || undefined;
   },
 
   initializeFromAnalysis: (analysis) => {
-    const initialVersionId = uuidv4();
-    const blocks: Record<string, ScriptBlock> = {};
-    const blockOrder: string[] = [];
-    const activeVariants: Record<string, string> = {};
+    const state = get();
+    const doc = state.collection.createDoc();
+    
+    doc.load(() => {
+        const pageBlockId = doc.addBlock('affine:page', {});
+        doc.addBlock('affine:surface', {}, pageBlockId);
+        const noteId = doc.addBlock('affine:note', {}, pageBlockId);
+        
+        // Use the sample's way - no initial complex content inside load to avoid crashes
+        doc.addBlock('affine:paragraph', {}, noteId);
+    });
 
-    const addInitBlock = (type: string, pmNode: any, source: 'ai' | 'user' = 'ai') => {
-      const { block, variantId } = createBlockWithVariant(type, makeDocContent([pmNode]), source);
-      blocks[block.id] = block;
-      blockOrder.push(block.id);
-      activeVariants[block.id] = variantId;
-    };
-
-    // Title from template
-    addInitBlock('heading', makeHeadingNode(analysis.reusable_template || 'Draft Script', 1));
-
-    // Add sections from video structure
-    if (analysis.video_structure && analysis.video_structure.length > 0) {
-      analysis.video_structure.forEach(section => {
-        addInitBlock('heading', makeHeadingNode(section.title, 2));
-        addInitBlock('paragraph', makeParagraphNode(section.templatized_version || section.description));
-      });
-    }
-
-    // Add adaptation brief as a callout
-    if (analysis.adaptation_brief) {
-      addInitBlock('callout', makeCalloutNode(`Adaptation Guide: ${analysis.adaptation_brief}`));
-    }
-
-    // Add why it works as a callout
-    if (analysis.why_it_works) {
-      addInitBlock('callout', makeCalloutNode(`Why it works: ${analysis.why_it_works}`));
-    }
-
-    const initialVersion: ScriptVersion = {
-      id: initialVersionId,
+    const versionId = doc.id;
+    const version: ScriptVersionInfo = {
+      id: versionId,
       name: 'V1 – From Analysis',
-      blockOrder,
-      activeVariants,
+      docId: doc.id,
       createdAt: Date.now(),
     };
 
+    // Bind editor
+    state.editor.doc = doc;
+
     set({
-      blocks,
-      versions: { [initialVersionId]: initialVersion },
-      activeVersionId: initialVersionId,
+      versions: { [versionId]: version },
+      activeVersionId: versionId,
       title: analysis.reusable_template || 'Untitled Script',
       isInitialized: true,
     });
   },
 
   applyPreset: (preset) => {
-    const blocks: Record<string, ScriptBlock> = {};
-    const blockOrder: string[] = [];
-    const activeVariants: Record<string, string> = {};
-
-    preset.structure.forEach((item) => {
-      let pmNode: any;
-      if (item.type === 'heading') {
-        pmNode = makeHeadingNode(item.content, 2);
-      } else if (item.type === 'callout') {
-        pmNode = makeCalloutNode(item.content);
-      } else {
-        pmNode = makeParagraphNode(item.content);
-      }
-
-      const { block, variantId } = createBlockWithVariant(item.type, makeDocContent([pmNode]));
-      blocks[block.id] = block;
-      blockOrder.push(block.id);
-      activeVariants[block.id] = variantId;
+    const state = get();
+    const doc = state.collection.createDoc();
+    
+    doc.load(() => {
+        const pageBlockId = doc.addBlock('affine:page', {});
+        doc.addBlock('affine:surface', {}, pageBlockId);
+        const noteId = doc.addBlock('affine:note', {}, pageBlockId);
+        doc.addBlock('affine:paragraph', {}, noteId);
     });
 
-    set((state) => {
-      const newVersionId = uuidv4();
-      const presetName = (preset as any).name || 'Preset';
-      const newVersion: ScriptVersion = {
-        id: newVersionId,
-        name: `V${Object.keys(state.versions).length + 1} – ${presetName}`,
-        blockOrder,
-        activeVariants,
-        createdAt: Date.now(),
-      };
+    const versionId = doc.id;
+    const version: ScriptVersionInfo = {
+      id: versionId,
+      name: `V${Object.keys(state.versions).length + 1} – ${preset.name}`,
+      docId: doc.id,
+      createdAt: Date.now(),
+    };
 
-      return {
-        blocks: { ...state.blocks, ...blocks },
-        versions: { ...state.versions, [newVersionId]: newVersion },
-        activeVersionId: newVersionId,
-        isInitialized: true,
-      };
-    });
+    // Bind editor
+    state.editor.doc = doc;
+
+    set((state) => ({
+      versions: { ...state.versions, [versionId]: version },
+      activeVersionId: versionId,
+      isInitialized: true,
+    }));
   },
 }));

@@ -2,9 +2,6 @@ import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { Header } from "../components/layout/Header";
 import { Footer } from "../components/layout/Footer";
-import { VideoPlayer } from "../features/timeline/components/VideoPlayer";
-import { ProportionalTimeline } from "../features/timeline/components/ProportionalTimeline";
-import { BlueprintDraftView } from "../features/timeline/components/BlueprintDraftView";
 import { AnalysisView } from "../features/analysis/views/AnalysisView";
 import { BriefView } from "../features/analysis/views/BriefView";
 import { ScriptingView } from "../features/scripting/views/ScriptingView";
@@ -95,7 +92,6 @@ function App() {
                 seekTo={seekTo}
                 isFocusMode={isFocusMode}
                 error={error}
-                result={result}
               />
             ) : activeTab === "analysis" ? (
               <AnalysisView result={result} notes={notes} setNotes={setNotes} />
