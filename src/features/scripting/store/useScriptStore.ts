@@ -1,10 +1,8 @@
 import { create } from 'zustand';
-import { DocCollection, Schema, Doc } from '@blocksuite/store';
-import { AffineEditorContainer } from '@blocksuite/presets';
+import { DocCollection, Schema, type Doc } from '@blocksuite/store';
 import { AffineSchemas } from '@blocksuite/blocks';
-// Side-effect imports to ensure blocks are registered
-import '@blocksuite/blocks';
-import '@blocksuite/presets';
+import { PageEditor } from '@blocksuite/presets';
+import { v4 as uuidv4 } from 'uuid';
 import { AnalysisResult } from '../../../types';
 
 interface ScriptVersionInfo {
@@ -19,12 +17,12 @@ interface ScriptState {
   targetAudience: string;
   niche: string;
   
-  collection: DocCollection;
+  collection: DocCollection | null;
   versions: Record<string, ScriptVersionInfo>;
   activeVersionId: string;
   
   // Singleton editor instance
-  editor: AffineEditorContainer;
+  editor: PageEditor | null;
   
   isInitialized: boolean;
 
@@ -32,7 +30,7 @@ interface ScriptState {
   setMetadata: (metadata: Partial<Pick<ScriptState, 'title' | 'targetAudience' | 'niche'>>) => void;
   
   // Version Actions
-  createVersion: (name: string) => string;
+  createVersion: (name: string, content?: string) => string;
   switchVersion: (versionId: string) => void;
   deleteVersion: (versionId: string) => void;
   
@@ -45,186 +43,186 @@ interface ScriptState {
   getActiveDoc: () => Doc | undefined;
 }
 
-const schema = new Schema().register(AffineSchemas);
-const collection = new DocCollection({ schema });
-collection.meta.initialize();
-
-// Create the singleton editor instance
-const editor = new AffineEditorContainer();
+// Helper to initialize BlockSuite hierarchy
+const initDocHierarchy = (doc: Doc, title: string = '', content: string = '') => {
+  doc.load(() => {
+    const pageBlockId = doc.addBlock('affine:page', {
+      title: new doc.Text(title),
+    });
+    doc.addBlock('affine:surface', {}, pageBlockId);
+    const noteId = doc.addBlock('affine:note', {}, pageBlockId);
+    doc.addBlock('affine:paragraph', {
+      text: new doc.Text(content),
+    }, noteId);
+  });
+};
 
 export const useScriptStore = create<ScriptState>((set, get) => ({
-  title: 'Untitled Script',
+  title: 'My Video Script',
   targetAudience: '',
   niche: '',
-  collection,
+  collection: null,
   versions: {},
   activeVersionId: '',
-  editor,
+  editor: null,
   isInitialized: false,
 
   setMetadata: (metadata) => set((state) => ({ ...state, ...metadata })),
 
   ensureDefaultVersion: () => {
     const state = get();
-    if (Object.keys(state.versions).length > 0) return;
+    if (state.isInitialized) return;
 
-    const doc = state.collection.createDoc({ id: 'v1-default' });
+    console.log('useScriptStore: Initializing BlockSuite...');
+
+    // 1. Initialize Schema & Collection
+    const schema = new Schema().register(AffineSchemas);
+    const collection = new DocCollection({ schema });
     
-    console.log('useScriptStore: Creating default version', doc.id);
-    doc.load(() => {
-        console.log('useScriptStore: Doc loaded, adding initial blocks');
-        const pageBlockId = doc.addBlock('affine:page', {});
-        doc.addBlock('affine:surface', {}, pageBlockId);
-        const noteId = doc.addBlock('affine:note', {}, pageBlockId);
-        doc.addBlock('affine:paragraph', {}, noteId);
-        console.log('useScriptStore: Initial blocks added');
+    // collection.meta.initialize() is synchronous but good to have
+    collection.meta.initialize();
+
+    // 2. Initialize Singleton Editor
+    const editor = document.createElement('page-editor') as PageEditor;
+    
+    // Force a re-render once initialized
+    set({ 
+      collection, 
+      editor,
+      isInitialized: true 
     });
 
-    const versionId = doc.id;
-    const version: ScriptVersionInfo = {
+    console.log('useScriptStore: BlockSuite initialized, creating default version...');
+
+    // 3. Create initial version if none exists
+    if (Object.keys(state.versions).length === 0) {
+      get().createVersion('Initial Draft');
+    }
+  },
+
+  createVersion: (name, content = '') => {
+    const { collection, versions } = get();
+    if (!collection) {
+      console.warn('useScriptStore: Cannot create version - collection not initialized');
+      return '';
+    }
+
+    const versionId = uuidv4();
+    const doc = collection.createDoc();
+    console.log(`useScriptStore: Created new doc ${doc.id} for version ${name}`);
+    
+    // Ensure doc is loaded before adding blocks
+    initDocHierarchy(doc, name, content);
+
+    const newVersion: ScriptVersionInfo = {
       id: versionId,
-      name: 'V1 – Default',
+      name,
       docId: doc.id,
       createdAt: Date.now(),
     };
 
-    // Bind editor to the first doc
-    state.editor.doc = doc;
-
     set({
-      versions: { [versionId]: version },
+      versions: { ...versions, [versionId]: newVersion },
       activeVersionId: versionId,
-      isInitialized: true,
-    });
-  },
-
-  createVersion: (name) => {
-    const state = get();
-    const newDoc = state.collection.createDoc();
-    
-    newDoc.load(() => {
-        const pageBlockId = newDoc.addBlock('affine:page', {});
-        newDoc.addBlock('affine:surface', {}, pageBlockId);
-        const noteId = newDoc.addBlock('affine:note', {}, pageBlockId);
-        newDoc.addBlock('affine:paragraph', {}, noteId);
     });
 
-    const versionId = newDoc.id;
-    const version: ScriptVersionInfo = {
-      id: versionId,
-      name,
-      docId: newDoc.id,
-      createdAt: Date.now(),
-    };
-
-    // Switch editor to new doc
-    state.editor.doc = newDoc;
-
-    set((state) => ({
-      versions: { ...state.versions, [versionId]: version },
-      activeVersionId: versionId,
-    }));
+    // If this is the active version, sync the editor immediately
+    const editor = get().editor;
+    if (editor) {
+      editor.doc = doc;
+    }
 
     return versionId;
   },
 
   switchVersion: (versionId) => {
-    const state = get();
-    const version = state.versions[versionId];
-    if (version) {
-        const doc = state.collection.getDoc(version.docId);
-        if (doc) {
-            state.editor.doc = doc;
-        }
+    const { versions, collection, editor } = get();
+    const version = versions[versionId];
+    if (version && collection && editor) {
+      const doc = collection.getDoc(version.docId);
+      if (doc) {
+        console.log(`useScriptStore: Switching to version ${version.name} (doc ${doc.id})`);
+        editor.doc = doc;
+        set({ activeVersionId: versionId });
+      } else {
+        console.error(`useScriptStore: Could not find doc ${version.docId} for version ${versionId}`);
+      }
     }
-    set({ activeVersionId: versionId });
   },
 
   deleteVersion: (versionId) => set((state) => {
-    const versionKeys = Object.keys(state.versions);
-    if (versionKeys.length <= 1) return state;
-
-    const { [versionId]: versionToDelete, ...remainingVersions } = state.versions;
+    const newVersions = { ...state.versions };
+    delete newVersions[versionId];
     
-    state.collection.removeDoc(versionToDelete.docId);
-
     let nextActiveId = state.activeVersionId;
-    if (nextActiveId === versionId) {
-      nextActiveId = Object.keys(remainingVersions)[0] || '';
-      const nextVersion = remainingVersions[nextActiveId];
-      if (nextVersion) {
-          const doc = state.collection.getDoc(nextVersion.docId);
-          if (doc) state.editor.doc = doc;
-      }
+    if (versionId === state.activeVersionId) {
+      const remainingIds = Object.keys(newVersions);
+      nextActiveId = remainingIds.length > 0 ? remainingIds[0] : '';
     }
-    return { versions: remainingVersions, activeVersionId: nextActiveId };
+
+    return {
+      versions: newVersions,
+      activeVersionId: nextActiveId
+    };
   }),
 
   getActiveDoc: () => {
-    const state = get();
-    const version = state.versions[state.activeVersionId];
-    if (!version) return undefined;
-    return state.collection.getDoc(version.docId) || undefined;
+    const { versions, activeVersionId, collection } = get();
+    const version = versions[activeVersionId];
+    if (!version || !collection) return undefined;
+    return collection.getDoc(version.docId) as Doc;
   },
 
   initializeFromAnalysis: (analysis) => {
-    const state = get();
-    const doc = state.collection.createDoc();
+    const { isInitialized, ensureDefaultVersion } = get();
+    if (!isInitialized) ensureDefaultVersion();
+
+    const content = analysis.adaptation_brief || '';
+    get().createVersion('AI Draft', content);
     
-    doc.load(() => {
-        const pageBlockId = doc.addBlock('affine:page', {});
-        doc.addBlock('affine:surface', {}, pageBlockId);
-        const noteId = doc.addBlock('affine:note', {}, pageBlockId);
-        
-        // Use the sample's way - no initial complex content inside load to avoid crashes
-        doc.addBlock('affine:paragraph', {}, noteId);
-    });
-
-    const versionId = doc.id;
-    const version: ScriptVersionInfo = {
-      id: versionId,
-      name: 'V1 – From Analysis',
-      docId: doc.id,
-      createdAt: Date.now(),
-    };
-
-    // Bind editor
-    state.editor.doc = doc;
-
     set({
-      versions: { [versionId]: version },
-      activeVersionId: versionId,
-      title: analysis.reusable_template || 'Untitled Script',
-      isInitialized: true,
+      title: 'Analyzed Script',
     });
   },
 
   applyPreset: (preset) => {
-    const state = get();
-    const doc = state.collection.createDoc();
+    const { collection, versions } = get();
+    if (!collection) return;
+
+    const versionId = uuidv4();
+    const doc = collection.createDoc();
     
     doc.load(() => {
-        const pageBlockId = doc.addBlock('affine:page', {});
-        doc.addBlock('affine:surface', {}, pageBlockId);
-        const noteId = doc.addBlock('affine:note', {}, pageBlockId);
-        doc.addBlock('affine:paragraph', {}, noteId);
+      const pageBlockId = doc.addBlock('affine:page', {
+        title: new doc.Text(preset.name),
+      });
+      doc.addBlock('affine:surface', {}, pageBlockId);
+      const noteId = doc.addBlock('affine:note', {}, pageBlockId);
+      
+      preset.structure.forEach(item => {
+        if (item.type === 'heading') {
+          doc.addBlock('affine:paragraph', {
+            text: new doc.Text(item.content),
+            type: 'h2'
+          }, noteId);
+        } else {
+          doc.addBlock('affine:paragraph', {
+            text: new doc.Text(item.content),
+          }, noteId);
+        }
+      });
     });
 
-    const versionId = doc.id;
-    const version: ScriptVersionInfo = {
+    const newVersion: ScriptVersionInfo = {
       id: versionId,
-      name: `V${Object.keys(state.versions).length + 1} – ${preset.name}`,
+      name: preset.name,
       docId: doc.id,
       createdAt: Date.now(),
     };
 
-    // Bind editor
-    state.editor.doc = doc;
-
-    set((state) => ({
-      versions: { ...state.versions, [versionId]: version },
+    set({
+      versions: { ...versions, [versionId]: newVersion },
       activeVersionId: versionId,
-      isInitialized: true,
-    }));
+    });
   },
 }));
