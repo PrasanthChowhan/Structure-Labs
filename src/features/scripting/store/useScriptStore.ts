@@ -2,6 +2,9 @@ import { create } from 'zustand';
 import { DocCollection, Schema, Doc } from '@blocksuite/store';
 import { AffineEditorContainer } from '@blocksuite/presets';
 import { AffineSchemas } from '@blocksuite/blocks';
+// Side-effect imports to ensure blocks are registered
+import '@blocksuite/blocks';
+import '@blocksuite/presets';
 import { AnalysisResult } from '../../../types';
 
 interface ScriptVersionInfo {
@@ -67,11 +70,14 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
 
     const doc = state.collection.createDoc({ id: 'v1-default' });
     
+    console.log('useScriptStore: Creating default version', doc.id);
     doc.load(() => {
+        console.log('useScriptStore: Doc loaded, adding initial blocks');
         const pageBlockId = doc.addBlock('affine:page', {});
         doc.addBlock('affine:surface', {}, pageBlockId);
         const noteId = doc.addBlock('affine:note', {}, pageBlockId);
         doc.addBlock('affine:paragraph', {}, noteId);
+        console.log('useScriptStore: Initial blocks added');
     });
 
     const versionId = doc.id;
