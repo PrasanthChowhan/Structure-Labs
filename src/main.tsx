@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./app/App";
 import "./index.css";
-import "@blocksuite/presets/themes/affine.css";
+import "@toeverything/theme/style.css";
 
 // BlockSuite initialization
 import { effects as presetsEffects } from '@blocksuite/presets/effects';
