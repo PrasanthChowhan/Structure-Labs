@@ -35,3 +35,4 @@ workspace_data/
 last_prompt.txt
 last_response_raw.json
 tokens.log
+sessions/

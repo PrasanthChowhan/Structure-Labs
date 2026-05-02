@@ -10,19 +10,21 @@ import { TimelineView } from "../features/timeline/views/TimelineView";
 import { TimelineProvider } from "../features/timeline/context/TimelineContext";
 import { useVideoAnalyzer } from "../features/analysis/hooks/useVideoAnalyzer";
 import { useVideoPlayback } from "../features/timeline/hooks/useVideoPlayback";
+import { Workbench, WorkbenchState } from "../lib/Workbench";
 import { WorkspaceTab } from "../types";
 import { cn } from "../lib/utils";
 
 function App() {
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("timeline");
-  const [notes, setNotes] = useState("");
-  const [isFocusMode, setIsFocusMode] = useState(false);
+  const workbench = Workbench.getInstance();
+  const [wbState, setWbState] = useState<WorkbenchState>(workbench.getState());
+
+  useEffect(() => {
+    return workbench.subscribe(setWbState);
+  }, [workbench]);
 
   const {
     url, setUrl,
     niche, setNiche,
-    isLoading, status,
-    result, media, error,
     handleAnalyze
   } = useVideoAnalyzer();
 
@@ -43,17 +45,16 @@ function App() {
 
     video.addEventListener("timeupdate", handleTimeUpdate);
     
-    if (media && activeTab === "timeline") {
+    if (wbState.analysis.media && wbState.activeTab === "timeline") {
       video.muted = true;
       video.currentTime = currentTime;
       video.play().catch(e => console.error("Playback failed:", e));
     }
 
     return () => video.removeEventListener("timeupdate", handleTimeUpdate);
-  }, [media, activeTab, setCurrentTime, videoRef]);
+  }, [wbState.analysis.media, wbState.activeTab, setCurrentTime, videoRef, currentTime]);
 
-  // No padding for core workspace views
-  const isWorkspaceView = activeTab === "timeline" || activeTab === "scripting";
+  const isWorkspaceView = wbState.activeTab === "timeline" || wbState.activeTab === "scripting";
 
   return (
     <div className="flex flex-col h-screen bg-parchment text-near-black overflow-hidden font-sans antialiased">
@@ -62,43 +63,43 @@ function App() {
         setUrl={setUrl} 
         niche={niche} 
         setNiche={setNiche} 
-        isLoading={isLoading} 
+        isLoading={wbState.analysis.status !== 'idle' && wbState.analysis.status !== 'completed' && wbState.analysis.status !== 'error'} 
         handleAnalyze={handleAnalyze}
-        isFocusMode={isFocusMode}
-        setIsFocusMode={setIsFocusMode}
+        isFocusMode={wbState.isFocusMode}
+        setIsFocusMode={(val) => workbench.setFocusMode(val)}
       />
 
       <main className={cn(
         "flex-1 overflow-hidden flex flex-col relative",
         isWorkspaceView ? "p-0 gap-0" : "p-6 gap-6"
       )}>
-        {isLoading && (
+        {wbState.analysis.status !== 'idle' && wbState.analysis.status !== 'completed' && wbState.analysis.status !== 'error' && (
           <div className="absolute inset-0 bg-parchment/60 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center animate-in fade-in duration-300">
             <div className="bg-white border border-border-cream p-8 rounded-generous shadow-whisper flex flex-col items-center gap-4">
               <Loader2 className="w-8 h-8 text-terracotta animate-spin" />
-              <p className="text-sm font-medium text-olive-gray">{status}</p>
+              <p className="text-sm font-medium text-olive-gray">{wbState.analysis.progress}</p>
             </div>
           </div>
         )}
 
         <div className="flex-1 flex flex-col min-h-0">
-          <TimelineProvider result={result} media={media}>
-            {activeTab === "timeline" ? (
+          <TimelineProvider result={wbState.analysis.result} media={wbState.analysis.media}>
+            {wbState.activeTab === "timeline" ? (
               <TimelineView 
-                media={media}
+                media={wbState.analysis.media}
                 videoRef={videoRef}
                 currentTime={currentTime}
                 highlightedSegmentId={highlightedSegmentId}
                 seekTo={seekTo}
-                isFocusMode={isFocusMode}
-                error={error}
+                isFocusMode={wbState.isFocusMode}
+                error={wbState.analysis.error}
               />
-            ) : activeTab === "analysis" ? (
-              <AnalysisView result={result} notes={notes} setNotes={setNotes} />
-            ) : activeTab === "brief" ? (
-              <BriefView result={result} />
-            ) : activeTab === "scripting" ? (
-              <ScriptingView result={result} />
+            ) : wbState.activeTab === "analysis" ? (
+              <AnalysisView result={wbState.analysis.result} notes={wbState.notes} setNotes={(n) => workbench.setNotes(n)} />
+            ) : wbState.activeTab === "brief" ? (
+              <BriefView result={wbState.analysis.result} />
+            ) : wbState.activeTab === "scripting" ? (
+              <ScriptingView result={wbState.analysis.result} />
             ) : (
               <ExportView />
             )}
@@ -106,7 +107,7 @@ function App() {
         </div>
       </main>
 
-      <Footer activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Footer activeTab={wbState.activeTab as WorkspaceTab} setActiveTab={(tab) => workbench.setActiveTab(tab)} />
     </div>
   );
 }

@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { useScriptStore } from '../../store/useScriptStore';
+import { ScriptEngine } from '../../lib/ScriptEngine';
 import '@toeverything/theme/style.css';
 
 export const ScriptEditor = () => {
-  const { editor, getActiveDoc, isInitialized } = useScriptStore();
+  const engine = ScriptEngine.getInstance();
+  const { getActiveDoc } = useScriptStore();
   const doc = getActiveDoc();
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const [isMounting, setIsMounting] = useState(false);
 
   useEffect(() => {
     const container = editorContainerRef.current;
-    if (!container || !editor || !doc) return;
+    if (!container || !doc) return;
+
+    const editor = engine.getEditor();
 
     console.log('ScriptEditor: Attempting to mount editor for doc:', doc.id);
     setIsMounting(true);
@@ -22,7 +26,6 @@ export const ScriptEditor = () => {
     }
 
     // Small delay to ensure the container is ready in the DOM
-    // and to avoid issues with React StrictMode's double-mount
     const timer = setTimeout(() => {
       if (!container.contains(editor)) {
         console.log('ScriptEditor: Appending editor to container');
@@ -39,15 +42,7 @@ export const ScriptEditor = () => {
         container.removeChild(editor);
       }
     };
-  }, [editor, doc]); 
-
-  if (!isInitialized) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-olive-gray text-sm italic">
-        Initializing BlockSuite...
-      </div>
-    );
-  }
+  }, [doc, engine]); 
 
   if (!doc) {
     return (
@@ -89,7 +84,6 @@ export const ScriptEditor = () => {
                 min-height: 700px;
                 background: white;
             }
-            /* If it mounts as affine-editor-container instead */
             .editor-container > affine-editor-container {
                 display: block;
                 flex: 1;
