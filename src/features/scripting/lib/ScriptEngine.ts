@@ -56,7 +56,7 @@ export class ScriptEngine {
   }
 
   public getDoc(docId: string): Doc | undefined {
-    return this.getCollection().getDoc(docId);
+    return this.getCollection().getDoc(docId) || undefined;
   }
 
   public mountEditor(doc: Doc) {

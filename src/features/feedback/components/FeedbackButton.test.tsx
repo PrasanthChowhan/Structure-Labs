@@ -70,11 +70,14 @@ describe('FeedbackButton', () => {
     fireEvent.click(screen.getByRole('button', { name: /submit feedback/i }));
     
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith('submit_feedback', expect.object_of_payload({
-        title: 'Bug report',
-        description: 'Something is broken',
-        image_base64: 'data:image/png;base64,annotated',
-      }));
+      expect(invoke).toHaveBeenCalledWith('submit_feedback', {
+        payload: expect.objectContaining({
+          title: 'Bug report',
+          description: 'Something is broken',
+          image_base64: 'data:image/png;base64,annotated',
+          labels: [],
+        })
+      });
     });
     
     expect(screen.getByText(/feedback submitted/i)).toBeInTheDocument();
@@ -101,18 +104,4 @@ describe('FeedbackButton', () => {
     
     expect(screen.queryByText(/feedback submitted/i)).not.toBeInTheDocument();
   });
-});
-
-// Helper for expect.objectContaining with custom matcher if needed
-expect.extend({
-  object_of_payload(received, expected) {
-    const { payload } = received;
-    const pass = this.equals(payload.title, expected.title) && 
-                 this.equals(payload.description, expected.description) &&
-                 this.equals(payload.image_base64, expected.image_base64);
-    return {
-      pass,
-      message: () => `expected payload to match ${JSON.stringify(expected)}`,
-    };
-  }
 });

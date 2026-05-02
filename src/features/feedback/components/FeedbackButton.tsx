@@ -8,12 +8,27 @@ export const FeedbackButton: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [issueUrl, setIssueUrl] = useState('');
   const [error, setError] = useState('');
   
   // Image State
   const [imageContent, setImageContent] = useState<string | null>(null);
+
+  const availableLabels = [
+    { id: 'bug', label: 'Bug' },
+    { id: 'feature', label: 'Feature Request' },
+    { id: 'ready-for-agent', label: 'Ready for Agent' },
+  ];
+
+  const toggleLabel = (labelId: string) => {
+    setSelectedLabels(prev => 
+      prev.includes(labelId) 
+        ? prev.filter(id => id !== labelId) 
+        : [...prev, labelId]
+    );
+  };
 
   // Clipboard Paste Support
   useEffect(() => {
@@ -69,6 +84,7 @@ export const FeedbackButton: React.FC = () => {
           state_snapshot: JSON.stringify(snapshot, null, 2),
           image_path: null,
           image_base64: imageContent,
+          labels: selectedLabels,
         }
       });
 
@@ -76,6 +92,7 @@ export const FeedbackButton: React.FC = () => {
       setStatus('success');
       setTitle('');
       setDescription('');
+      setSelectedLabels([]);
       setImageContent(null);
     } catch (err) {
       console.error('Feedback submission failed:', err);
@@ -89,6 +106,7 @@ export const FeedbackButton: React.FC = () => {
     setStatus('idle');
     setIssueUrl('');
     setError('');
+    setSelectedLabels([]);
     setImageContent(null);
   };
 
@@ -162,6 +180,28 @@ export const FeedbackButton: React.FC = () => {
                       className="w-full px-3 py-2 bg-parchment border border-border-cream rounded-md focus:outline-none focus:ring-1 focus:ring-terracotta transition-shadow resize-none"
                       required
                     />
+                  </div>
+
+                  {/* Labels Section */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-olive-gray/60">Labels</label>
+                    <div className="flex flex-wrap gap-2">
+                      {availableLabels.map((l) => (
+                        <button
+                          key={l.id}
+                          type="button"
+                          onClick={() => toggleLabel(l.id)}
+                          className={cn(
+                            "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all border",
+                            selectedLabels.includes(l.id)
+                              ? "bg-terracotta text-white border-terracotta"
+                              : "bg-parchment text-olive-gray border-border-cream hover:border-terracotta/50"
+                          )}
+                        >
+                          {l.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Image Paste Section */}

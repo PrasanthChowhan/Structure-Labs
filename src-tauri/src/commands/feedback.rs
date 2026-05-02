@@ -11,6 +11,7 @@ pub struct FeedbackPayload {
     pub state_snapshot: String,
     pub image_path: Option<String>,
     pub image_base64: Option<String>,
+    pub labels: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -116,10 +117,13 @@ pub async fn submit_feedback(payload: FeedbackPayload) -> Result<String, String>
         body = format!("{}\n\n---\n**Screenshot:**\n![Feedback Screenshot]({})", body, url);
     }
 
+    let mut labels = vec!["feedback".to_string()];
+    labels.extend(payload.labels);
+
     let issue_payload = CreateIssuePayload {
         title: payload.title,
         body,
-        labels: vec!["feedback".to_string()],
+        labels,
     };
 
     let response = client.post(&issues_url)
