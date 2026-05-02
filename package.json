@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "vitest"
   },
   "dependencies": {
     "@blocksuite/affine-components": "0.19.5",
@@ -17,6 +18,7 @@
     "@blocksuite/store": "0.19.5",
     "@google/generative-ai": "^0.24.1",
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-fs": "^2.5.1",
     "@tauri-apps/plugin-opener": "^2",
     "@toeverything/theme": "1.1.23",
     "clsx": "^2.1.1",
@@ -25,6 +27,7 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "tailwind-merge": "^3.5.0",
+    "tauri-plugin-screenshots-api": "^2.2.0",
     "tippy.js": "^6.3.7",
     "uuid": "^14.0.0",
     "yjs": "13.6.30",
@@ -33,14 +36,20 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.4",
     "@tauri-apps/cli": "^2",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^25.6.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@types/uuid": "^11.0.0",
     "@vitejs/plugin-react": "^4.6.0",
     "autoprefixer": "^10.5.0",
+    "jsdom": "^29.1.1",
     "postcss": "^8.5.10",
     "tailwindcss": "^4.2.4",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^4.1.5"
   }
 }

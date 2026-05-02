@@ -8,6 +8,7 @@ import { ScriptingView } from "../features/scripting/views/ScriptingView";
 import { ExportView } from "../features/export/views/ExportView";
 import { TimelineView } from "../features/timeline/views/TimelineView";
 import { TimelineProvider } from "../features/timeline/context/TimelineContext";
+import { FeedbackButton } from "../features/feedback/components/FeedbackButton";
 import { useVideoAnalyzer } from "../features/analysis/hooks/useVideoAnalyzer";
 import { useVideoPlayback } from "../features/timeline/hooks/useVideoPlayback";
 import { Workbench, WorkbenchState } from "../lib/Workbench";
@@ -108,6 +109,7 @@ function App() {
       </main>
 
       <Footer activeTab={wbState.activeTab as WorkspaceTab} setActiveTab={(tab) => workbench.setActiveTab(tab)} />
+      <FeedbackButton />
     </div>
   );
 }
